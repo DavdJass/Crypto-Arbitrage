@@ -11,27 +11,38 @@ export function Dashboard() {
   const { connected, orderBooks, opportunities, trades, clearOpportunities } =
     useSignalR();
 
+  const executableCount = opportunities.filter(
+    (o) => o.netProfit > 0 && o.returnPct > 0.002 && o.bidPrice > o.askPrice
+  ).length;
+
   return (
     <div className="dashboard">
-      {/* Header */}
       <header>
-        <h1>
-          <span className="btc-icon">₿</span> Crypto Arbitrage Bot
-        </h1>
-        <span className={`badge ${connected ? 'badge-ok' : 'badge-err'}`}>
-          {connected ? '🟢 Live' : '🔴 Desconectado'}
-        </span>
+        <h1><span className="btc-icon">₿</span> Crypto Arbitrage Bot</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {executableCount > 0 && (
+            <span className="badge badge-ok">{executableCount} ejecutables</span>
+          )}
+          <span className={`badge ${connected ? 'badge-ok' : 'badge-err'}`}>
+            <span className={`live-dot ${connected ? 'connected' : 'disconnected'}`} />
+            {connected ? 'EN VIVO' : 'DESCONECTADO'}
+          </span>
+        </div>
       </header>
 
-      {/* Top row: OrderBooks + Status */}
-      <section className="top-row">
-        <div className="col-2">
-          <h2>📊 Order Books en vivo</h2>
-          <OrderBookPanel books={orderBooks} />
+      {/* Top row: Order Books + Status */}
+      <section>
+        <div className="section-header">
+          <h2>📊 Order Books</h2>
         </div>
-        <div className="col-1">
-          <ConnectionHealth />
-          <CircuitBreakerPanel />
+        <div className="top-row">
+          <div className="col-2">
+            <OrderBookPanel books={orderBooks} />
+          </div>
+          <div className="col-1">
+            <ConnectionHealth />
+            <CircuitBreakerPanel />
+          </div>
         </div>
       </section>
 
@@ -41,12 +52,14 @@ export function Dashboard() {
       </section>
 
       {/* PnL + Wallets */}
-      <section className="mid-row">
-        <div className="col-2">
-          <PnLChart />
-        </div>
-        <div className="col-1">
-          <WalletPanel />
+      <section>
+        <div className="mid-row">
+          <div className="col-2">
+            <PnLChart />
+          </div>
+          <div className="col-1">
+            <WalletPanel />
+          </div>
         </div>
       </section>
 
@@ -54,6 +67,10 @@ export function Dashboard() {
       <section>
         <TradesPanel trades={trades} />
       </section>
+
+      <footer style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-dim)', fontSize: 12, borderTop: '1px solid var(--border)' }}>
+        Crypto Arbitrage Bot v1.0 — Datos en vivo de Binance, Kraken y Bybit
+      </footer>
     </div>
   );
 }

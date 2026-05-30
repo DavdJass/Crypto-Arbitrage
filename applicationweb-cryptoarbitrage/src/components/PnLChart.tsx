@@ -1,15 +1,7 @@
 import { useEffect, useState } from 'react';
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { arbitrageApi } from '../api/arbitrageApi';
-import type { TradeResult, TradeSummary } from '../types';
+import type { TradeSummary } from '../types';
 
 export function PnLChart() {
   const [summary, setSummary] = useState<TradeSummary | null>(null);
@@ -47,38 +39,59 @@ export function PnLChart() {
     <div className="card">
       <h3>📈 P&L Acumulado</h3>
       {summary && (
-        <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
-          <span className={`mono ${summary.totalPnl >= 0 ? 'green' : 'red'}`}>
-            PnL: ${summary.totalPnl.toFixed(3)}
-          </span>
-          <span className="dim">Trades: {summary.totalTrades}</span>
-          <span className="dim">
-            Win Rate: {(summary.winRate * 100).toFixed(1)}%
-          </span>
+        <div style={{ display: 'flex', gap: 20, marginBottom: 16 }}>
+          <div>
+            <div className="label">PnL Total</div>
+            <div className={`mono ${summary.totalPnl >= 0 ? 'green' : 'red'}`} style={{ fontSize: 18, fontWeight: 700 }}>
+              {summary.totalPnl >= 0 ? '+' : ''}${summary.totalPnl.toFixed(3)}
+            </div>
+          </div>
+          <div>
+            <div className="label">Trades</div>
+            <div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>{summary.totalTrades}</div>
+          </div>
+          <div>
+            <div className="label">Win Rate</div>
+            <div className="mono green" style={{ fontSize: 18, fontWeight: 700 }}>
+              {(summary.winRate * 100).toFixed(1)}%
+            </div>
+          </div>
         </div>
       )}
-      <ResponsiveContainer width="100%" height={180}>
+      <ResponsiveContainer width="100%" height={200}>
         <AreaChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-          <XAxis dataKey="time" stroke="#999" fontSize={11} />
-          <YAxis stroke="#999" fontSize={11} />
+          <defs>
+            <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--green)" stopOpacity={0.3} />
+              <stop offset="100%" stopColor="var(--green)" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+          <XAxis dataKey="time" stroke="var(--text-dim)" fontSize={11} />
+          <YAxis stroke="var(--text-dim)" fontSize={11} />
           <Tooltip
             contentStyle={{
-              background: '#1a1a2e',
-              border: '1px solid #333',
-              borderRadius: 6,
-              color: '#fff',
+              background: 'var(--surface2)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              color: 'var(--text)',
+              fontSize: 13,
             }}
           />
           <Area
             type="monotone"
             dataKey="pnl"
-            stroke="#22c55e"
-            fill="#22c55e20"
+            stroke="var(--green)"
             strokeWidth={2}
+            fill="url(#pnlGrad)"
           />
         </AreaChart>
       </ResponsiveContainer>
+      {chartData.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-dim)' }}>
+          Sin datos — los trades aparecerán aquí cuando se ejecuten
+        </div>
+      )}
     </div>
   );
 }

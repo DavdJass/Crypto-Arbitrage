@@ -16,25 +16,28 @@ export function CircuitBreakerPanel() {
   if (!cb) return null;
 
   return (
-    <div className="card" style={{ borderTop: `3px solid ${cb.isOpen ? '#ef4444' : '#22c55e'}` }}>
+    <div className="card" style={{
+      borderTop: `3px solid ${cb.isOpen ? 'var(--red)' : 'var(--green)'}`
+    }}>
       <h3>🛡️ Circuit Breaker</h3>
       <div className="card-row">
         <span className="label">Estado</span>
         <span className={`badge ${cb.isOpen ? 'badge-err' : 'badge-ok'}`}>
-          {cb.isOpen ? 'ABIERTO' : 'CERRADO'}
+          {cb.isOpen ? '🔓 ABIERTO' : '🔒 CERRADO'}
         </span>
       </div>
       <div className="card-row">
         <span className="label">Pérdidas consecutivas</span>
-        <span className="mono">{cb.consecutiveLosses}/5</span>
+        <span className="mono">{cb.consecutiveLosses}<span className="dim">/5</span></span>
       </div>
       <div className="card-row">
-        <span className="label">Trades recientes</span>
+        <span className="label">Trades evaluados</span>
         <span className="mono">{cb.recentTradesCount}</span>
       </div>
       {cb.openedAt && (
-        <div className="card-row dim">
-          <span>Abierto: {new Date(cb.openedAt).toLocaleTimeString()}</span>
+        <div className="card-row">
+          <span className="label">Abierto desde</span>
+          <span className="dim">{new Date(cb.openedAt).toLocaleTimeString()}</span>
         </div>
       )}
     </div>

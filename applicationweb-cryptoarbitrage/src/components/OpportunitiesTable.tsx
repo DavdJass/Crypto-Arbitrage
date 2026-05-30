@@ -7,14 +7,13 @@ export function OpportunitiesTable({
   ops: ArbitrageOpportunity[];
   onClear: () => void;
 }) {
-  const executable = (op: ArbitrageOpportunity) => {
-    return op.netProfit > 0 && op.returnPct > 0.002 && op.bidPrice > op.askPrice;
-  };
+  const executable = (op: ArbitrageOpportunity) =>
+    op.netProfit > 0 && op.returnPct > 0.002 && op.bidPrice > op.askPrice;
 
   return (
     <div>
       <div className="section-header">
-        <h2>🎯 Oportunidades ({ops.length})</h2>
+        <h2>🎯 Oportunidades <span>({ops.length})</span></h2>
         <button onClick={onClear} className="btn-sm">Limpiar</button>
       </div>
       <div className="table-wrapper">
@@ -23,22 +22,24 @@ export function OpportunitiesTable({
             <tr>
               <th>Compra</th>
               <th>Vende</th>
-              <th>Ask</th>
-              <th>Bid</th>
-              <th>Net Profit</th>
-              <th>Return %</th>
-              <th>Ejecutable</th>
+              <th>Precio Ask</th>
+              <th>Precio Bid</th>
+              <th>Volumen</th>
+              <th>Profit Neto</th>
+              <th>Retorno</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            {ops.slice(0, 30).map((op, i) => {
+            {ops.slice(0, 25).map((op, i) => {
               const exec = executable(op);
               return (
                 <tr key={i} className={exec ? 'row-executable' : ''}>
-                  <td>{op.buyExchange}</td>
-                  <td>{op.sellExchange}</td>
-                  <td className="mono">${op.askPrice.toFixed(2)}</td>
-                  <td className="mono">${op.bidPrice.toFixed(2)}</td>
+                  <td><span className="gold">{op.buyExchange}</span></td>
+                  <td><span className="gold">{op.sellExchange}</span></td>
+                  <td className="mono red">${op.askPrice.toFixed(2)}</td>
+                  <td className="mono green">${op.bidPrice.toFixed(2)}</td>
+                  <td className="mono">{op.volume.toFixed(4)}</td>
                   <td className={`mono ${op.netProfit > 0 ? 'green' : 'red'}`}>
                     ${op.netProfit.toFixed(3)}
                   </td>
@@ -49,6 +50,13 @@ export function OpportunitiesTable({
                 </tr>
               );
             })}
+            {ops.length === 0 && (
+              <tr>
+                <td colSpan={8} style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-dim)' }}>
+                  Esperando datos del mercado...
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

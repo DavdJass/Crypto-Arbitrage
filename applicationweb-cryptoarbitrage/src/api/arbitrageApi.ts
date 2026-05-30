@@ -1,7 +1,8 @@
-// ─── API Key configurable ──────────────────────────────────
-const API_KEY = 'dev-key'; // Cambiar en producción
+import type { OrderBook, TradeResult, TradeSummary, WalletBalance, FeedStatus, CircuitBreakerState } from '../types';
 
-const headers = {
+const API_KEY = 'dev-key';
+
+const headers: Record<string, string> = {
   'Content-Type': 'application/json',
   'X-API-Key': API_KEY,
 };
@@ -13,21 +14,21 @@ async function get<T>(url: string): Promise<T> {
 }
 
 export const arbitrageApi = {
-  getOrderBooks: () =>
+  getOrderBooks: (): Promise<OrderBook[]> =>
     get<OrderBook[]>('/api/orderbooks'),
 
-  getTrades: (limit = 50) =>
+  getTrades: (limit = 50): Promise<TradeResult[]> =>
     get<TradeResult[]>(`/api/trades?limit=${limit}`),
 
-  getTradeSummary: () =>
+  getTradeSummary: (): Promise<TradeSummary> =>
     get<TradeSummary>('/api/trades/summary'),
 
-  getWallets: () =>
+  getWallets: (): Promise<WalletBalance[]> =>
     get<WalletBalance[]>('/api/status/wallets'),
 
-  getConnections: () =>
+  getConnections: (): Promise<FeedStatus[]> =>
     get<FeedStatus[]>('/api/status/connections'),
 
-  getCircuitBreaker: () =>
+  getCircuitBreaker: (): Promise<CircuitBreakerState> =>
     get<CircuitBreakerState>('/api/status/circuit-breaker'),
 };

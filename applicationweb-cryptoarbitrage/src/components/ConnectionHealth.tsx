@@ -2,11 +2,17 @@ import { useEffect, useState } from 'react';
 import { arbitrageApi } from '../api/arbitrageApi';
 import type { FeedStatus } from '../types';
 
-const statusColor: Record<string, string> = {
-  connected: '#22c55e',
-  connecting: '#f59e0b',
-  disconnected: '#ef4444',
-  fallback_rest: '#f59e0b',
+const statusIcon: Record<string, string> = {
+  connected: '🟢',
+  connecting: '🟡',
+  disconnected: '🔴',
+  fallback_rest: '🟠',
+};
+const statusLabel: Record<string, string> = {
+  connected: 'WebSocket',
+  connecting: 'Conectando...',
+  disconnected: 'Desconectado',
+  fallback_rest: 'REST fallback',
 };
 
 export function ConnectionHealth() {
@@ -20,24 +26,18 @@ export function ConnectionHealth() {
     return () => clearInterval(id);
   }, []);
 
+  const allOk = feeds.every(f => f.status === 'connected');
+
   return (
-    <div className="card">
-      <h3>📡 Conexiones</h3>
+    <div className="card" style={{ borderTop: `3px solid ${allOk ? 'var(--green)' : 'var(--red)'}` }}>
+      <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span className={`live-dot ${allOk ? 'connected' : 'disconnected'}`} />
+        Conexiones
+      </h3>
       {feeds.map((f) => (
         <div key={f.exchangeId} className="card-row">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: '50%',
-                backgroundColor: statusColor[f.status] || '#666',
-                display: 'inline-block',
-              }}
-            />
-            <span>{f.exchangeId}</span>
-          </div>
-          <span className="dim">{f.status}</span>
+          <span>{f.exchangeId}</span>
+          <span className="dim">{statusIcon[f.status] || '⚪'} {statusLabel[f.status] || f.status}</span>
         </div>
       ))}
     </div>
