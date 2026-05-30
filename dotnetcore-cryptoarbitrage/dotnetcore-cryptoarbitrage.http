@@ -1,0 +1,6 @@
+@dotnetcore_cryptoarbitrage_HostAddress = http://localhost:5152
+
+GET {{dotnetcore_cryptoarbitrage_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
