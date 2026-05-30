@@ -3,7 +3,6 @@ using ArbitrageBot.Infrastructure.Cache;
 using ArbitrageBot.Infrastructure.Feeds;
 using ArbitrageBot.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace ArbitrageBot.Infrastructure;
 
@@ -25,22 +24,25 @@ public static class DependencyInjection
             DefaultRequestHeaders = { { "User-Agent", "ArbitrageBot/1.0" } }
         });
 
-        // Feeds WebSocket + REST fallback — registrados como singletons
+        // ─── 10 FEEDS: WebSocket + REST fallback ──────────────
         services.AddSingleton<IExchangeFeed, BinanceFeed>();
         services.AddSingleton<IExchangeFeed, KrakenFeed>();
         services.AddSingleton<IExchangeFeed, BybitFeed>();
+        services.AddSingleton<IExchangeFeed, CoinbaseFeed>();
+        services.AddSingleton<IExchangeFeed, OkxFeed>();
+        services.AddSingleton<IExchangeFeed, BitfinexFeed>();
+        services.AddSingleton<IExchangeFeed, KuCoinFeed>();
+        services.AddSingleton<IExchangeFeed, GateIoFeed>();
+        services.AddSingleton<IExchangeFeed, BitstampFeed>();
+        services.AddSingleton<IExchangeFeed, GeminiFeed>();
 
         // Cache de order books — singleton compartido entre feeds y detector
         services.AddSingleton<IOrderBookAggregator, MemoryOrderBookCache>();
 
         // ─── Persistencia ─────────────────────────────────────
         // Por defecto usa InMemoryTradeRepository para que funcione sin PostgreSQL.
-        // Cuando tengas Postgres, cambia a TradeRepository y descomenta PostgresConnectionFactory.
+        // Cuando tengas Postgres, cambia a TradeRepository.
         services.AddSingleton<ITradeRepository, InMemoryTradeRepository>();
-
-        // Para PostgreSQL (cuando esté disponible):
-        // services.AddSingleton(new PostgresConnectionFactory(postgresConnectionString));
-        // services.AddSingleton<ITradeRepository, TradeRepository>();
 
         return services;
     }
