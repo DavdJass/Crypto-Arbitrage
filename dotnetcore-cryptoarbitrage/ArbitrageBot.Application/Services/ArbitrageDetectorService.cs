@@ -1,0 +1,121 @@
+using System.Threading.Channels;
+using ArbitrageBot.Domain.Interfaces;
+using ArbitrageBot.Domain.Models;
+using ArbitrageBot.Application.Hubs;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+namespace ArbitrageBot.Application.Services;
+
+/// <summary>
+/// BackgroundService que lee del Channel&lt;OrderBook&gt; y evalúa todas las
+/// combinaciones N×N de exchanges para detectar oportunidades de arbitraje.
+/// Emite TODAS las oportunidades (rentables o no) vía Channel y SignalR.
+/// </summary>
+public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
+{
+    private readonly IOrderBookAggregator _cache;
+    private readonly ProfitCalculator _calculator;
+    private readonly CircuitBreaker _circuitBreaker;
+    private readonly IHubContext<ArbitrageHub> _hubContext;
+    private readonly ILogger<ArbitrageDetectorService> _logger;
+    private readonly Channel<ArbitrageOpportunity> _outputChannel;
+
+    public ArbitrageDetectorService(
+        IOrderBookAggregator cache,
+        ProfitCalculator calculator,
+        CircuitBreaker circuitBreaker,
+        IHubContext<ArbitrageHub> hubContext,
+        ILogger<ArbitrageDetectorService> logger)
+    {
+        _cache = cache;
+        _calculator = calculator;
+        _circuitBreaker = circuitBreaker;
+        _hubContext = hubContext;
+        _logger = logger;
+        _outputChannel = Channel.CreateUnbounded<ArbitrageOpportunity>(
+            new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+    }
+
+    public ChannelReader<ArbitrageOpportunity> GetReader() => _outputChannel.Reader;
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("ArbitrageDetectorService iniciado");
+        var reader = _cache.GetReader();
+
+        try
+        {
+            await foreach (var orderBook in reader.ReadAllAsync(stoppingToken))
+            {
+                if (_circuitBreaker.IsOpen)
+                {
+                    _logger.LogDebug("Circuito abierto — omitiendo detección");
+                    continue;
+                }
+
+                var opportunities = EvaluateAllPairs(orderBook.ExchangeId);
+                foreach (var opp in opportunities)
+                {
+                    // Emitir al pipeline (Channel)
+                    await _outputChannel.Writer.WriteAsync(opp, stoppingToken);
+
+                    // Push a SignalR para el frontend
+                    await _hubContext.Clients.All.SendAsync("OpportunityFound", opp, stoppingToken);
+
+                    if (_calculator.IsExecutable(opp))
+                    {
+                        _logger.LogInformation(
+                            "[OPORTUNIDAD ✓] Buy={Buy}@{Ask:F2} → Sell={Sell}@{Bid:F2} | Net={Net:F3} | Ret={Ret:P2}",
+                            opp.BuyExchange, opp.AskPrice, opp.SellExchange, opp.BidPrice,
+                            opp.NetProfit, opp.ReturnPct);
+                    }
+                    else
+                    {
+                        _logger.LogTrace(
+                            "[OPORTUNIDAD ✗] Buy={Buy}@{Ask:F2} → Sell={Sell}@{Bid:F2} | Net={Net:F3} | Ret={Ret:P2}",
+                            opp.BuyExchange, opp.AskPrice, opp.SellExchange, opp.BidPrice,
+                            opp.NetProfit, opp.ReturnPct);
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ArbitrageDetectorService error fatal");
+            throw;
+        }
+        finally
+        {
+            _outputChannel.Writer.TryComplete();
+            _logger.LogInformation("ArbitrageDetectorService finalizado");
+        }
+    }
+
+    private List<ArbitrageOpportunity> EvaluateAllPairs(string updatedExchangeId)
+    {
+        var opportunities = new List<ArbitrageOpportunity>();
+        var allBooks = _cache.GetAllOrderBooks();
+
+        if (allBooks.Count < 2) return opportunities;
+
+        var exchangeIds = allBooks.Keys.ToList();
+
+        for (int i = 0; i < exchangeIds.Count; i++)
+        {
+            for (int j = 0; j < exchangeIds.Count; j++)
+            {
+                if (i == j) continue;
+                var buyBook = allBooks[exchangeIds[i]];
+                var sellBook = allBooks[exchangeIds[j]];
+
+                var opp = _calculator.Evaluate(buyBook, sellBook);
+                opportunities.Add(opp);
+            }
+        }
+
+        return opportunities;
+    }
+}
