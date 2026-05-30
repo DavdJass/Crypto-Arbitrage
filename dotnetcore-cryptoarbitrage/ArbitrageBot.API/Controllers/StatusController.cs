@@ -6,9 +6,6 @@ using Microsoft.Extensions.Logging;
 
 namespace ArbitrageBot.API.Controllers;
 
-/// <summary>
-/// Estado del sistema: wallets, circuit breaker y conexiones a exchanges.
-/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 [Produces("application/json")]
@@ -19,78 +16,30 @@ public class StatusController : ControllerBase
     private readonly FeedHealthTracker _health;
     private readonly ILogger<StatusController> _logger;
 
-    public StatusController(
-        IWalletManager walletManager,
-        CircuitBreaker circuitBreaker,
-        FeedHealthTracker health,
-        ILogger<StatusController> logger)
-    {
-        _walletManager = walletManager;
-        _circuitBreaker = circuitBreaker;
-        _health = health;
-        _logger = logger;
-    }
+    public StatusController(IWalletManager wm, CircuitBreaker cb, FeedHealthTracker h, ILogger<StatusController> l)
+    { _walletManager = wm; _circuitBreaker = cb; _health = h; _logger = l; }
 
-    /// <summary>
-    /// Obtiene el balance actual de todas las wallets simuladas por exchange.
-    /// </summary>
-    /// <returns>Lista de wallets con ExchangeId, UsdtBalance y BtcBalance.</returns>
-    /// <response code="200">Balances retornados exitosamente.</response>
     [HttpGet("wallets")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult GetWallets()
     {
-        var balances = _walletManager.GetAllBalances();
-        return Ok(balances.Values.Select(b => new
-        {
-            b.ExchangeId,
-            b.UsdtBalance,
-            b.BtcBalance
-        }));
+        return Ok(_walletManager.GetAllBalances().Values.Select(b => new { b.ExchangeId, b.UsdtBalance, b.BtcBalance }));
     }
 
-    /// <summary>
-    /// Obtiene el estado actual del circuit breaker.
-    /// </summary>
-    /// <returns>Objeto con IsOpen, OpenedAt, ClosedAt, ConsecutiveLosses y RecentTradesCount.</returns>
-    /// <response code="200">Estado del circuit breaker retornado exitosamente.</response>
     [HttpGet("circuit-breaker")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult GetCircuitBreaker()
     {
-        var state = _circuitBreaker.GetState();
-        return Ok(new
-        {
-            state.IsOpen,
-            state.OpenedAt,
-            state.ClosedAt,
-            state.ConsecutiveLosses,
-            state.RecentTradesCount
-        });
+        var s = _circuitBreaker.GetState();
+        return Ok(new { s.IsOpen, s.OpenedAt, s.ClosedAt, s.ConsecutiveLosses, s.RecentTradesCount });
     }
 
-    /// <summary>
-    /// Obtiene el estado de conexión en vivo de cada exchange.
-    /// </summary>
-    /// <remarks>
-    /// Cada feed reporta si está conectado vía WebSocket ("connected"),
-    /// en modo fallback REST ("fallback_rest"), desconectado ("disconnected")
-    /// o con estado desconocido ("unknown").
-    /// </remarks>
-    /// <returns>Mapa de exchangeId → estado de conexión.</returns>
-    /// <response code="200">Estados de conexión retornados exitosamente.</response>
     [HttpGet("connections")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
     public IActionResult GetConnections()
     {
-        var statuses = _health.GetAllStatuses();
-        return Ok(statuses.Values.Select(s => new
+        return Ok(_health.GetAllStatuses().Values.Select(s => new
         {
-            s.ExchangeId,
-            s.Status,
-            s.Details,
-            s.LastUpdated,
-            Age = DateTime.UtcNow - s.LastUpdated
+            s.ExchangeId, s.Status, s.Details, s.LastUpdated,
+            Age = DateTime.UtcNow - s.LastUpdated,
+            s.AvgLatencyMs
         }));
     }
 }

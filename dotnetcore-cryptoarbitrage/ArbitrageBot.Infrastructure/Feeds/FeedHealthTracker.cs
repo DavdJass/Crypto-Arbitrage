@@ -2,46 +2,53 @@ using System.Collections.Concurrent;
 
 namespace ArbitrageBot.Infrastructure.Feeds;
 
-/// <summary>
-/// Monitorea el estado de conexión de cada feed WebSocket.
-/// Thread-safe.
-/// </summary>
+/// <summary>Monitorea el estado y latencia de cada feed.</summary>
 public class FeedHealthTracker
 {
     private readonly ConcurrentDictionary<string, FeedStatus> _statuses = new();
+    private readonly ConcurrentDictionary<string, LinkedList<long>> _latencies = new();
 
-    /// <summary>Actualiza el estado de un feed.</summary>
     public void SetStatus(string exchangeId, string status, string details = "")
     {
-        _statuses[exchangeId] = new FeedStatus(
-            exchangeId,
-            status,
-            details,
-            DateTime.UtcNow
-        );
+        _statuses[exchangeId] = new FeedStatus(exchangeId, status, details, DateTime.UtcNow);
     }
 
-    /// <summary>Obtiene el estado actual de un feed.</summary>
+    public void RecordLatency(string exchangeId, long ms)
+    {
+        var list = _latencies.GetOrAdd(exchangeId, _ => new LinkedList<long>());
+        lock (list)
+        {
+            list.AddLast(ms);
+            while (list.Count > 100) list.RemoveFirst();
+        }
+    }
+
+    /// <summary>Latencia promedio de los últimos eventos (ms).</summary>
+    public double GetAvgLatency(string exchangeId)
+    {
+        if (!_latencies.TryGetValue(exchangeId, out var list)) return 0;
+        lock (list)
+        {
+            return list.Count > 0 ? list.Average() : 0;
+        }
+    }
+
     public FeedStatus GetStatus(string exchangeId)
     {
-        return _statuses.GetValueOrDefault(exchangeId, new FeedStatus(exchangeId, "unknown", "", DateTime.UtcNow));
+        var s = _statuses.GetValueOrDefault(exchangeId, new FeedStatus(exchangeId, "unknown", "", DateTime.UtcNow));
+        return s with { AvgLatencyMs = GetAvgLatency(exchangeId) };
     }
 
-    /// <summary>Obtiene el estado de todos los feeds.</summary>
     public IReadOnlyDictionary<string, FeedStatus> GetAllStatuses()
     {
-        return new Dictionary<string, FeedStatus>(_statuses);
+        var result = new Dictionary<string, FeedStatus>();
+        foreach (var key in _statuses.Keys)
+            result[key] = GetStatus(key);
+        return result;
     }
 }
 
-/// <summary>Estado de conexión de un feed.</summary>
-/// <param name="ExchangeId">Nombre del exchange.</param>
-/// <param name="Status">"connected", "connecting", "disconnected", "fallback_rest".</param>
-/// <param name="Details">Mensaje adicional (error, latencia, etc).</param>
-/// <param name="LastUpdated">Timestamp UTC de la última actualización.</param>
-public record FeedStatus(
-    string ExchangeId,
-    string Status,
-    string Details,
-    DateTime LastUpdated
-);
+public record FeedStatus(string ExchangeId, string Status, string Details, DateTime LastUpdated)
+{
+    public double AvgLatencyMs { get; init; }
+}

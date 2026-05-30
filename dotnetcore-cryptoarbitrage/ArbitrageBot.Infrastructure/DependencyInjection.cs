@@ -3,28 +3,24 @@ using ArbitrageBot.Infrastructure.Cache;
 using ArbitrageBot.Infrastructure.Feeds;
 using ArbitrageBot.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace ArbitrageBot.Infrastructure;
 
-/// <summary>
-/// Métodos de extensión para registrar la capa de Infrastructure en el contenedor DI.
-/// </summary>
 public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructureServices(
-        this IServiceCollection services, string postgresConnectionString)
+        this IServiceCollection services, string postgresConnectionString, string? sqliteDbPath = null)
     {
-        // Health tracker de conexiones (compartido entre todos los feeds)
         services.AddSingleton<FeedHealthTracker>();
 
-        // HttpClient singleton compartido para REST fallback de todos los feeds
         services.AddSingleton(new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(5),
             DefaultRequestHeaders = { { "User-Agent", "ArbitrageBot/1.0" } }
         });
 
-        // ─── 10 FEEDS: WebSocket + REST fallback ──────────────
+        // 10 feeds
         services.AddSingleton<IExchangeFeed, BinanceFeed>();
         services.AddSingleton<IExchangeFeed, KrakenFeed>();
         services.AddSingleton<IExchangeFeed, BybitFeed>();
@@ -36,13 +32,13 @@ public static class DependencyInjection
         services.AddSingleton<IExchangeFeed, BitstampFeed>();
         services.AddSingleton<IExchangeFeed, GeminiFeed>();
 
-        // Cache de order books — singleton compartido entre feeds y detector
         services.AddSingleton<IOrderBookAggregator, MemoryOrderBookCache>();
 
-        // ─── Persistencia ─────────────────────────────────────
-        // Por defecto usa InMemoryTradeRepository para que funcione sin PostgreSQL.
-        // Cuando tengas Postgres, cambia a TradeRepository.
-        services.AddSingleton<ITradeRepository, InMemoryTradeRepository>();
+        // Persistencia: SQLite como base local, Postgres como opción production
+        var dbPath = sqliteDbPath ?? Path.Combine(Directory.GetCurrentDirectory(), "arbitrage.db");
+        services.AddSingleton(sp =>
+            new SqliteTradeRepository(dbPath, sp.GetRequiredService<ILogger<SqliteTradeRepository>>()));
+        services.AddSingleton<ITradeRepository>(sp => sp.GetRequiredService<SqliteTradeRepository>());
 
         return services;
     }
