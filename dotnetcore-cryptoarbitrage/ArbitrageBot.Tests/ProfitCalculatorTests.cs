@@ -37,12 +37,16 @@ public class ProfitCalculatorTests
     public void Evaluate_ProfitableSpread_ReturnsPositiveProfit()
     {
         var binance = new OrderBook("Binance", 70000m, 70050m, 2.0m, 1.5m, DateTime.UtcNow);
-        var kraken = new OrderBook("Kraken", 70200m, 70250m, 1.8m, 1.2m, DateTime.UtcNow);
+        var kraken = new OrderBook("Kraken", 70400m, 70450m, 1.8m, 1.2m, DateTime.UtcNow);
 
         var opp = _calc.Evaluate(binance, kraken);
 
-        // Buy Binance @ 70050, Sell Kraken @ 70200
-        // Spread bruto = $150/btc. Neto tras fees + slippage + withdrawal debe ser positivo
+        // Buy Binance @ 70050, Sell Kraken @ 70400
+        // buyCost = 70050*0.1*1.001 = 7012.005
+        // sellGain = 70400*0.1*0.9984 = 7028.736
+        // slippage = 70050*0.1*0.0005 = 3.5025
+        // withdrawal (Binance) = 2.00
+        // netProfit = 7028.736 - 7012.005 - 3.5025 - 2.00 = 11.2285
         Assert.True(opp.NetProfit > 0, $"Esperado profit positivo, fue {opp.NetProfit}");
         Assert.True(opp.ReturnPct > 0);
         Assert.True(opp.BidPrice > opp.AskPrice);
@@ -121,14 +125,13 @@ public class ProfitCalculatorTests
     [Fact]
     public void Evaluate_AccountsForWithdrawalFee()
     {
-        // Sin fee de retiro vs con fee de retiro
+        // Spread muy ajustado — el withdrawal fee hace que sea negativo
         var binance = new OrderBook("Binance", 70000m, 70050m, 2.0m, 1.5m, DateTime.UtcNow);
-        var kraken = new OrderBook("Kraken", 70070m, 70100m, 1.8m, 1.2m, DateTime.UtcNow);
+        var kraken = new OrderBook("Kraken", 70100m, 70150m, 1.8m, 1.2m, DateTime.UtcNow);
 
         var opp = _calc.Evaluate(binance, kraken);
 
-        // Spread muy ajustado, el withdrawal fee de Kraken ($3.50) deberia impactar
-        // Buy=70050*0.1*1.001 + slippage, Sell=70070*0.1*0.9984 - withdrawal
-        Assert.True(opp.NetProfit < 5.0m, "Spread ajustado debe reflejar withdrawal fee");
+        // Spread de solo $50 — tras fees + withdrawal debe ser negativo
+        Assert.True(opp.NetProfit < 0, $"Spread ajustado debe ser negativo, fue {opp.NetProfit}");
     }
 }
