@@ -1,37 +1,53 @@
 using System.Net.WebSockets;
 using System.Text;
+using ArbitrageBot.Domain.Configuration;
 using ArbitrageBot.Domain.Interfaces;
 using ArbitrageBot.Domain.Models;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json.Linq;
 
 namespace ArbitrageBot.Infrastructure.Feeds;
 
 /// <summary>
-/// Feed WebSocket de Binance.
-/// wss://stream.binance.com:9443/ws/btcusdt@depth5@100ms
+/// Feed WebSocket + REST fallback de Binance.
+/// Configurable vía IOptions&lt;ExchangeOptions&gt;.
 /// </summary>
 public class BinanceFeed : IExchangeFeed, IDisposable
 {
     private readonly ILogger<BinanceFeed> _logger;
+    private readonly HttpClient _httpClient;
+    private readonly FeedHealthTracker _health;
     private readonly string _wsUrl;
+    private readonly string _restUrl;
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
     private bool _disposed;
+    private bool _useRestFallback;
 
     public string ExchangeId => "Binance";
     public event Action<OrderBook>? OnOrderBookUpdated;
 
-    public BinanceFeed(ILogger<BinanceFeed> logger)
+    public BinanceFeed(
+        ILogger<BinanceFeed> logger,
+        HttpClient httpClient,
+        FeedHealthTracker health,
+        IOptions<ExchangeOptions> options)
     {
         _logger = logger;
-        _wsUrl = "wss://stream.binance.com:9443/ws/btcusdt@depth5@100ms";
+        _httpClient = httpClient;
+        _health = health;
+        var cfg = options.Value.Exchanges["Binance"];
+        _wsUrl = cfg.WebSocketUrl;
+        _restUrl = cfg.RestUrl;
     }
 
     public async Task ConnectAsync(CancellationToken ct)
     {
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        await ConnectWithRetryAsync(_cts.Token);
+        _health.SetStatus(ExchangeId, "connecting");
+        _ = Task.Run(() => ConnectWithRetryAsync(_cts.Token), ct);
+        await Task.CompletedTask;
     }
 
     private async Task ConnectWithRetryAsync(CancellationToken ct)
@@ -43,20 +59,29 @@ public class BinanceFeed : IExchangeFeed, IDisposable
         {
             try
             {
+                _health.SetStatus(ExchangeId, "connecting", "Intentando WebSocket...");
+
                 _ws?.Dispose();
                 _ws = new ClientWebSocket();
                 await _ws.ConnectAsync(new Uri(_wsUrl), ct);
-                _logger.LogInformation("BinanceFeed conectado a {Url}", _wsUrl);
-                retryDelay = TimeSpan.FromSeconds(2); // reset en conexión exitosa
+                _health.SetStatus(ExchangeId, "connected", "WebSocket conectado");
+                _useRestFallback = false;
+
+                _logger.LogInformation("[{Exchange}] WebSocket conectado a {Url}",
+                    ExchangeId, _wsUrl);
+                retryDelay = TimeSpan.FromSeconds(2);
+
                 await ReceiveLoopAsync(ct);
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "BinanceFeed error. Reintentando en {Delay}s...", retryDelay.TotalSeconds);
+                _logger.LogError(ex, "[{Exchange}] WebSocket error. Cambiando a REST fallback...", ExchangeId);
+                _useRestFallback = true;
+                await StartRestFallbackAsync(ct);
+
+                _health.SetStatus(ExchangeId, "connecting",
+                    $"Reintentando WS en {retryDelay.TotalSeconds}s...");
                 await Task.Delay(retryDelay, ct);
                 retryDelay = TimeSpan.FromSeconds(
                     Math.Min(retryDelay.TotalSeconds * 2, maxDelaySec));
@@ -82,8 +107,8 @@ public class BinanceFeed : IExchangeFeed, IDisposable
 
             if (result.MessageType == WebSocketMessageType.Close)
             {
-                _logger.LogWarning("BinanceFeed cerrado por el servidor");
-                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
+                _logger.LogWarning("[{Exchange}] WebSocket cerrado por el servidor", ExchangeId);
+                _health.SetStatus(ExchangeId, "disconnected", "Cerrado por servidor");
                 break;
             }
 
@@ -91,12 +116,41 @@ public class BinanceFeed : IExchangeFeed, IDisposable
             {
                 var orderBook = ParseOrderBook(sb.ToString());
                 if (orderBook is not null)
+                {
+                    _health.SetStatus(ExchangeId, "connected", "WebSocket — datos en vivo");
                     OnOrderBookUpdated?.Invoke(orderBook);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "BinanceFeed error parseando mensaje");
+                _logger.LogWarning(ex, "[{Exchange}] Error parseando mensaje WS", ExchangeId);
             }
+        }
+    }
+
+    private async Task StartRestFallbackAsync(CancellationToken ct)
+    {
+        _logger.LogInformation("[{Exchange}] Iniciando REST fallback cada 2s...", ExchangeId);
+        _health.SetStatus(ExchangeId, "fallback_rest", "Polling REST API cada 2s");
+
+        while (_useRestFallback && !ct.IsCancellationRequested)
+        {
+            try
+            {
+                var response = await _httpClient.GetStringAsync(_restUrl, ct);
+                var orderBook = ParseOrderBook(response);
+                if (orderBook is not null)
+                {
+                    OnOrderBookUpdated?.Invoke(orderBook);
+                    _health.SetStatus(ExchangeId, "fallback_rest", "REST — datos recibidos");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[{Exchange}] REST fallback error", ExchangeId);
+                _health.SetStatus(ExchangeId, "fallback_rest", $"Error: {ex.Message}");
+            }
+            await Task.Delay(2000, ct);
         }
     }
 
@@ -105,8 +159,8 @@ public class BinanceFeed : IExchangeFeed, IDisposable
         var json = JObject.Parse(raw);
         if (json["lastUpdateId"] is null) return null;
 
-        var bids = json["bids"]?.First?.First;
-        var asks = json["asks"]?.First?.First;
+        var bids = json["bids"]?.First;
+        var asks = json["asks"]?.First;
 
         if (bids is null || asks is null) return null;
 
@@ -114,19 +168,19 @@ public class BinanceFeed : IExchangeFeed, IDisposable
             ExchangeId,
             BestBid: (decimal)bids[0],
             BestAsk: (decimal)asks[0],
-            BidVolume: (decimal)(json["bids"]?.First?[1] ?? 0),
-            AskVolume: (decimal)(json["asks"]?.First?[1] ?? 0),
+            BidVolume: (decimal)(bids[1] ?? 0),
+            AskVolume: (decimal)(asks[1] ?? 0),
             Timestamp: DateTime.UtcNow
         );
     }
 
     public async Task DisconnectAsync()
     {
+        _useRestFallback = false;
         _cts?.Cancel();
         if (_ws?.State == WebSocketState.Open)
-        {
             await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
-        }
+        _health.SetStatus(ExchangeId, "disconnected", "Desconexión manual");
     }
 
     public void Dispose()

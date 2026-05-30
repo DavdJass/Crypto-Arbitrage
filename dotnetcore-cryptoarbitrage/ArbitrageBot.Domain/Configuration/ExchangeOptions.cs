@@ -1,7 +1,7 @@
 namespace ArbitrageBot.Domain.Configuration;
 
 /// <summary>
-/// Configuración de fees y slippage por exchange.
+/// Configuración de fees, endpoints y símbolos por exchange.
 /// </summary>
 public class ExchangeOptions
 {
@@ -12,7 +12,15 @@ public class ExchangeOptions
 
 public class ExchangeConfig
 {
-    public decimal Fee { get; set; }          // ej: 0.001 = 0.1%
-    public string WebSocketUrl { get; set; } = string.Empty;
+    /// <summary>Fee del exchange como fracción (ej: 0.001 = 0.1%).</summary>
+    public decimal Fee { get; set; }
+
+    /// <summary>Símbolo del par (ej: "btcusdt", "XBT/USD").</summary>
     public string Symbol { get; set; } = string.Empty;
+
+    /// <summary>URL del WebSocket público.</summary>
+    public string WebSocketUrl { get; set; } = string.Empty;
+
+    /// <summary>URL de la API REST para order book (fallback).</summary>
+    public string RestUrl { get; set; } = string.Empty;
 }
