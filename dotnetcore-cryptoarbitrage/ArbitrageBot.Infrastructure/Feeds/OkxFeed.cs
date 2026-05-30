@@ -9,95 +9,217 @@ using Newtonsoft.Json.Linq;
 
 namespace ArbitrageBot.Infrastructure.Feeds;
 
-/// <summary>Feed WebSocket + REST fallback de OKX.</summary>
+/// <summary>
+/// Feed WebSocket + REST fallback de OKX.
+/// WebSocket: canal bbo-tbt (Best Bid/Offer — Tick-by-Tick).
+/// REST: market/ticker como fallback cada 1.5s.
+/// </summary>
 public sealed class OkxFeed : IExchangeFeed, IDisposable
 {
-    private readonly ILogger<OkxFeed> _l; private readonly HttpClient _hc; private readonly FeedHealthTracker _h;
-    private readonly string _ws, _rest, _symbol; private ClientWebSocket? _wsCli; private CancellationTokenSource? _cts;
-    private bool _d, _fallback;
+    private readonly ILogger<OkxFeed> _logger;
+    private readonly HttpClient _httpClient;
+    private readonly FeedHealthTracker _health;
+    private readonly string _wsUrl;
+    private readonly string _restUrl;
+    private readonly string _symbol;
+    private ClientWebSocket? _ws;
+    private CancellationTokenSource? _cts;
+    private bool _disposed;
+    private bool _useRestFallback;
+
     public string ExchangeId => "OKX";
     public event Action<OrderBook>? OnOrderBookUpdated;
 
-    public OkxFeed(ILogger<OkxFeed> l, HttpClient hc, FeedHealthTracker h, IOptions<ExchangeOptions> o)
+    public OkxFeed(
+        ILogger<OkxFeed> logger,
+        HttpClient httpClient,
+        FeedHealthTracker health,
+        IOptions<ExchangeOptions> options)
     {
-        _l = l; _hc = hc; _h = h;
-        var c = o.Value.Exchanges["OKX"]; _ws = c.WebSocketUrl; _rest = c.RestUrl; _symbol = c.Symbol;
+        _logger = logger;
+        _httpClient = httpClient;
+        _health = health;
+        var cfg = options.Value.Exchanges["OKX"];
+        _wsUrl = cfg.WebSocketUrl;
+        _restUrl = cfg.RestUrl;
+        _symbol = cfg.Symbol;
     }
 
     public async Task ConnectAsync(CancellationToken ct)
     {
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _h.SetStatus(ExchangeId, "connecting");
-        _ = Task.Run(() => ConnectLoop(_cts.Token), ct);
+        _health.SetStatus(ExchangeId, "connecting");
+        _ = Task.Run(() => ConnectLoopAsync(_cts.Token), ct);
         await Task.CompletedTask;
     }
 
-    async Task ConnectLoop(CancellationToken ct)
+    private async Task ConnectLoopAsync(CancellationToken ct)
     {
-        var d = 2;
+        var retryDelay = TimeSpan.FromSeconds(2);
+        const int maxDelaySec = 30;
+
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                _wsCli?.Dispose(); _wsCli = new ClientWebSocket();
-                _wsCli.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
-                await _wsCli.ConnectAsync(new Uri(_ws), ct);
-                var sub = $"{{\"op\":\"subscribe\",\"args\":[{{\"channel\":\"bbo-tbt\",\"instId\":\"{_symbol}\"}}]}}";
-                await _wsCli.SendAsync(Encoding.UTF8.GetBytes(sub), WebSocketMessageType.Text, true, ct);
-                _h.SetStatus(ExchangeId, "connected", "WS"); _fallback = false;
-                _l.LogInformation("[{X}] WebSocket conectado", ExchangeId);
-                d = 2; await ReceiveLoop(ct);
+                _health.SetStatus(ExchangeId, "connecting", "Intentando WebSocket...");
+
+                _ws?.Dispose();
+                _ws = new ClientWebSocket();
+                _ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
+                await _ws.ConnectAsync(new Uri(_wsUrl), ct);
+
+                var subscribeMsg = $"{{\"op\":\"subscribe\"," +
+                    $"\"args\":[{{\"channel\":\"bbo-tbt\",\"instId\":\"{_symbol}\"}}]}}";
+                await _ws.SendAsync(Encoding.UTF8.GetBytes(subscribeMsg),
+                    WebSocketMessageType.Text, true, ct);
+
+                _health.SetStatus(ExchangeId, "connected", "WebSocket conectado");
+                _useRestFallback = false;
+                _logger.LogInformation("[{Exchange}] WebSocket conectado", ExchangeId);
+                retryDelay = TimeSpan.FromSeconds(2);
+
+                await ReceiveLoopAsync(ct);
             }
             catch (OperationCanceledException) { break; }
-            catch (Exception ex) { _l.LogError(ex, "[{X}] WS error", ExchangeId);
-                _fallback = true; await RestLoop(ct);
-                await Task.Delay(TimeSpan.FromSeconds(Math.Min(d, 30)), ct); d *= 2; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[{Exchange}] WS error → REST fallback", ExchangeId);
+                _useRestFallback = true;
+                await RestFallbackLoopAsync(ct);
+                _health.SetStatus(ExchangeId, "connecting",
+                    $"Reintentando WS en {retryDelay.TotalSeconds}s...");
+                await Task.Delay(retryDelay, ct);
+                retryDelay = TimeSpan.FromSeconds(
+                    Math.Min(retryDelay.TotalSeconds * 2, maxDelaySec));
+            }
         }
     }
 
-    async Task ReceiveLoop(CancellationToken ct)
+    private async Task ReceiveLoopAsync(CancellationToken ct)
     {
-        var buf = new byte[8192]; var sb = new StringBuilder();
-        while (_wsCli?.State == WebSocketState.Open && !ct.IsCancellationRequested)
+        var buffer = new byte[8192];
+        var sb = new StringBuilder();
+
+        while (_ws?.State == WebSocketState.Open && !ct.IsCancellationRequested)
         {
-            sb.Clear(); WebSocketReceiveResult r;
-            do { r = await _wsCli.ReceiveAsync(buf, ct); sb.Append(Encoding.UTF8.GetString(buf, 0, r.Count)); }
-            while (!r.EndOfMessage);
-            if (r.MessageType == WebSocketMessageType.Close) break;
-            try { var ob = Parse(sb.ToString()); if (ob != null) { OnOrderBookUpdated?.Invoke(ob); _h.SetStatus(ExchangeId, "connected", "WS"); } } catch { }
+            sb.Clear();
+            WebSocketReceiveResult result;
+
+            do
+            {
+                result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+                sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+            } while (!result.EndOfMessage);
+
+            if (result.MessageType == WebSocketMessageType.Close) break;
+
+            try
+            {
+                var orderBook = ParseOrderBook(sb.ToString());
+                if (orderBook is not null)
+                {
+                    _health.SetStatus(ExchangeId, "connected", "WebSocket — datos en vivo");
+                    OnOrderBookUpdated?.Invoke(orderBook);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[{Exchange}] Error parseando mensaje WS", ExchangeId);
+            }
         }
     }
 
-    async Task RestLoop(CancellationToken ct)
+    private async Task RestFallbackLoopAsync(CancellationToken ct)
     {
-        while (_fallback && !ct.IsCancellationRequested)
+        _logger.LogInformation("[{Exchange}] Iniciando REST fallback cada 1.5s...", ExchangeId);
+        _health.SetStatus(ExchangeId, "fallback_rest", "Polling REST API cada 1.5s");
+
+        while (_useRestFallback && !ct.IsCancellationRequested)
         {
-            try { var r = await _hc.GetStringAsync(_rest, ct); var ob = ParseRest(r);
-                if (ob != null) { OnOrderBookUpdated?.Invoke(ob); _h.SetStatus(ExchangeId, "fallback_rest", "REST"); } } catch { }
+            try
+            {
+                var response = await _httpClient.GetStringAsync(_restUrl, ct);
+                var orderBook = ParseRestOrderBook(response);
+                if (orderBook is not null)
+                {
+                    OnOrderBookUpdated?.Invoke(orderBook);
+                    _health.SetStatus(ExchangeId, "fallback_rest", "REST — datos recibidos");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[{Exchange}] REST fallback error", ExchangeId);
+                _health.SetStatus(ExchangeId, "fallback_rest", $"Error: {ex.Message}");
+            }
             await Task.Delay(1500, ct);
         }
     }
 
-    OrderBook? Parse(string raw)
+    /// <summary>
+    /// Parse del canal bbo-tbt: bids[0] y asks[0] del primer elemento en data.
+    /// </summary>
+    private OrderBook? ParseOrderBook(string raw)
     {
-        var j = JObject.Parse(raw); if (j["event"]?.ToString() != null) return null;
-        var data = j["data"]?.First; if (data == null) return null;
-        var bid = (decimal)(data["bids"]?.First?[0] ?? 0);
-        var ask = (decimal)(data["asks"]?.First?[0] ?? 0);
-        var bv = (decimal)(data["bids"]?.First?[1] ?? 0);
-        var av = (decimal)(data["asks"]?.First?[1] ?? 0);
-        if (bid == 0 || ask == 0) return null;
-        return new OrderBook(ExchangeId, bid, ask, bv, av, DateTime.UtcNow);
+        try
+        {
+            var json = JObject.Parse(raw);
+            // Ignorar eventos de suscripcion (tienen campo "event")
+            if (json["event"]?.ToString() is not null) return null;
+
+            var data = json["data"]?.First;
+            if (data is null) return null;
+
+            var bid = (decimal)(data["bids"]?.First?[0] ?? 0);
+            var ask = (decimal)(data["asks"]?.First?[0] ?? 0);
+            var bidVol = (decimal)(data["bids"]?.First?[1] ?? 0);
+            var askVol = (decimal)(data["asks"]?.First?[1] ?? 0);
+
+            if (bid == 0 || ask == 0) return null;
+
+            return new OrderBook(ExchangeId, bid, ask, bidVol, askVol, DateTime.UtcNow);
+        }
+        catch { return null; }
     }
 
-    OrderBook? ParseRest(string raw)
+    /// <summary>
+    /// Parse del ticker REST: bidPx, askPx, bidSz, askSz.
+    /// </summary>
+    private OrderBook? ParseRestOrderBook(string raw)
     {
-        var j = JObject.Parse(raw); var data = j["data"]?.First;
-        if (data == null) return null;
-        return new OrderBook(ExchangeId, (decimal)data["bidPx"], (decimal)data["askPx"],
-            (decimal)(data["bidSz"] ?? 0), (decimal)(data["askSz"] ?? 0), DateTime.UtcNow);
+        try
+        {
+            var json = JObject.Parse(raw);
+            var data = json["data"]?.First;
+            if (data is null) return null;
+
+            return new OrderBook(
+                ExchangeId,
+                BestBid: (decimal)(data["bidPx"] ?? 0),
+                BestAsk: (decimal)(data["askPx"] ?? 0),
+                BidVolume: (decimal)(data["bidSz"] ?? 0),
+                AskVolume: (decimal)(data["askSz"] ?? 0),
+                Timestamp: DateTime.UtcNow);
+        }
+        catch { return null; }
     }
 
-    public async Task DisconnectAsync() { _fallback = false; _cts?.Cancel(); if (_wsCli?.State == WebSocketState.Open) await _wsCli.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None); }
-    public void Dispose() { if (_d) return; _d = true; _wsCli?.Dispose(); _cts?.Cancel(); _cts?.Dispose(); }
+    public async Task DisconnectAsync()
+    {
+        _useRestFallback = false;
+        _cts?.Cancel();
+        if (_ws?.State == WebSocketState.Open)
+            await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "",
+                CancellationToken.None);
+        _health.SetStatus(ExchangeId, "disconnected", "Desconexion manual");
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _ws?.Dispose();
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
 }
