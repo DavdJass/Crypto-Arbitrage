@@ -1,5 +1,6 @@
 using System.Reflection;
 using ArbitrageBot.API;
+using ArbitrageBot.API.Middleware;
 using ArbitrageBot.Application;
 using ArbitrageBot.Infrastructure;
 using ArbitrageBot.Domain.Configuration;
@@ -15,6 +16,8 @@ builder.Services.Configure<WalletOptions>(
     builder.Configuration.GetSection(WalletOptions.SectionName));
 builder.Services.Configure<CircuitBreakerOptions>(
     builder.Configuration.GetSection(CircuitBreakerOptions.SectionName));
+builder.Services.Configure<SecurityOptions>(
+    builder.Configuration.GetSection(SecurityOptions.SectionName));
 
 // ─── Capas ────────────────────────────────────────────────────
 var connectionString = builder.Configuration.GetConnectionString("Postgres")
@@ -46,17 +49,73 @@ builder.Services.AddSwaggerGen(c =>
     var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
     if (File.Exists(xmlPath))
         c.IncludeXmlComments(xmlPath);
+
+    // Input de API Key en Swagger UI
+    c.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Description = "API Key requerida. Header: X-API-Key",
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Name = "X-API-Key",
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey
+    });
+
+    c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "ApiKey"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
 });
 
-// ─── CORS (para frontend en Vercel) ────────────────────────────
+// ─── CORS (producción: solo frontend autorizado) ──────────────
+var securityOpts = builder.Configuration
+    .GetSection(SecurityOptions.SectionName)
+    .Get<SecurityOptions>() ?? new SecurityOptions();
+
+var allowedOrigins = (securityOpts.AllowedOrigins ?? "*")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
 builder.Services.AddCors(options =>
 {
+    options.AddPolicy("ApiCors", policy =>
+    {
+        if (allowedOrigins.Length == 1 && allowedOrigins[0] == "*")
+        {
+            policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+        }
+        else
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
+    });
+
+    // SignalR necesita AllowCredentials + orígenes específicos
     options.AddPolicy("SignalR", policy =>
     {
-        policy.SetIsOriginAllowed(_ => true)
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+        if (allowedOrigins.Length == 1 && allowedOrigins[0] == "*")
+        {
+            policy.SetIsOriginAllowed(_ => true)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+        }
+        else
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+        }
     });
 });
 
@@ -73,12 +132,15 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-app.UseCors("SignalR");
+app.UseCors("ApiCors");
+app.UseMiddleware<RateLimitMiddleware>();
+app.UseMiddleware<ApiKeyMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 
-// ─── SignalR Hub ───────────────────────────────────────────────
-app.MapHub<ArbitrageBot.Application.Hubs.ArbitrageHub>("/hubs/arbitrage");
+// ─── SignalR Hub con su propia política CORS ───────────────────
+app.MapHub<ArbitrageBot.Application.Hubs.ArbitrageHub>("/hubs/arbitrage")
+   .RequireCors("SignalR");
 
 // ─── Auto-migración de base de datos (PostgreSQL) ────────────
 await DatabaseMigrator.MigrateAsync(connectionString, app.Services.GetRequiredService<ILogger<Program>>());

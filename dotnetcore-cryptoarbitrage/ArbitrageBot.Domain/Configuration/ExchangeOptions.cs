@@ -12,8 +12,11 @@ public class ExchangeOptions
 
 public class ExchangeConfig
 {
-    /// <summary>Fee del exchange como fracción (ej: 0.001 = 0.1%).</summary>
+    /// <summary>Trading fee como fracción (ej: 0.001 = 0.1%).</summary>
     public decimal Fee { get; set; }
+
+    /// <summary>Withdrawal/retiro fee estimado en USDT.</summary>
+    public decimal WithdrawalFeeUsdt { get; set; }
 
     /// <summary>Símbolo del par (ej: "btcusdt", "XBT/USD").</summary>
     public string Symbol { get; set; } = string.Empty;

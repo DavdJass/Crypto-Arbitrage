@@ -1,9 +1,6 @@
 using ArbitrageBot.Application.Hubs;
 using ArbitrageBot.Application.Services;
 using ArbitrageBot.Domain.Interfaces;
-using ArbitrageBot.Infrastructure.Cache;
-using ArbitrageBot.Infrastructure.Feeds;
-using ArbitrageBot.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace ArbitrageBot.Application;
@@ -15,24 +12,33 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
-        // Servicios de negocio
+        // ─── Servicios de negocio ──────────────────────────────
         services.AddSingleton<CircuitBreaker>();
         services.AddSingleton<ProfitCalculator>();
         services.AddSingleton<IWalletManager, WalletManager>();
 
-        // BackgroundServices del pipeline
-        services.AddHostedService<OrderBookAggregatorService>();
-        services.AddHostedService<ArbitrageDetectorService>();
-        services.AddHostedService<TradeExecutorService>();
+        // ─── BackgroundServices del pipeline ──────────────────
+        // Registramos los tipos concretos como singletons para que
+        // puedan ser resueltos tanto como IHostedService como por sus interfaces.
+        services.AddSingleton<OrderBookAggregatorService>();
+        services.AddSingleton<ArbitrageDetectorService>();
+        services.AddSingleton<TradeExecutorService>();
 
-        // Registro de IArbitrageDetector e ITradeExecutor como singletons
-        // (los mismos que los BackgroundServices)
+        // Luego los registramos como hosted services
+        services.AddHostedService<OrderBookAggregatorService>(
+            sp => sp.GetRequiredService<OrderBookAggregatorService>());
+        services.AddHostedService<ArbitrageDetectorService>(
+            sp => sp.GetRequiredService<ArbitrageDetectorService>());
+        services.AddHostedService<TradeExecutorService>(
+            sp => sp.GetRequiredService<TradeExecutorService>());
+
+        // Registro de interfaces que apuntan a los mismos singletons
         services.AddSingleton<IArbitrageDetector>(
             sp => sp.GetRequiredService<ArbitrageDetectorService>());
         services.AddSingleton<ITradeExecutor>(
             sp => sp.GetRequiredService<TradeExecutorService>());
 
-        // SignalR Hub
+        // ─── SignalR Hub ───────────────────────────────────────
         services.AddSignalR();
 
         return services;

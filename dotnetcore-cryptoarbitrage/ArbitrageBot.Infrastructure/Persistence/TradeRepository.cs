@@ -55,7 +55,7 @@ public class TradeRepository : ITradeRepository
             FROM trades;";
 
         using var conn = _connectionFactory.CreateConnection();
-        var result = await conn.QuerySingleAsync(sql, cancellationToken: ct);
+        var result = await conn.QuerySingleAsync(new CommandDefinition(sql, cancellationToken: ct));
 
         return (
             (decimal)result.totalPnl,

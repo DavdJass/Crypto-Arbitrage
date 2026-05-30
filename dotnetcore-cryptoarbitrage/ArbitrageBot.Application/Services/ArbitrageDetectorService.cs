@@ -10,8 +10,8 @@ namespace ArbitrageBot.Application.Services;
 
 /// <summary>
 /// BackgroundService que lee del Channel&lt;OrderBook&gt; y evalúa todas las
-/// combinaciones N×N de exchanges para detectar oportunidades de arbitraje.
-/// Emite TODAS las oportunidades (rentables o no) vía Channel y SignalR.
+/// combinaciones N×N de exchanges. Las oportunidades detectadas se priorizan
+/// por NetProfit descendente. Emite vía Channel y SignalR (fire-and-forget).
 /// </summary>
 public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
 {
@@ -56,25 +56,33 @@ public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
                 }
 
                 var opportunities = EvaluateAllPairs(orderBook.ExchangeId);
+
+                // ─── Priorizar por NetProfit descendente ─────────────────
+                opportunities.Sort((a, b) => b.NetProfit.CompareTo(a.NetProfit));
+
                 foreach (var opp in opportunities)
                 {
-                    // Emitir al pipeline (Channel)
+                    // Emitir al pipeline (Channel) — la mejor primero
                     await _outputChannel.Writer.WriteAsync(opp, stoppingToken);
 
-                    // Push a SignalR para el frontend
-                    await _hubContext.Clients.All.SendAsync("OpportunityFound", opp, stoppingToken);
+                    // Push a SignalR — FIRE AND FORGET (no bloquea el pipeline)
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _hubContext.Clients.All
+                                .SendAsync("OpportunityFound", opp, stoppingToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Error SignalR OpportunityFound");
+                        }
+                    }, stoppingToken);
 
                     if (_calculator.IsExecutable(opp))
                     {
                         _logger.LogInformation(
                             "[OPORTUNIDAD ✓] Buy={Buy}@{Ask:F2} → Sell={Sell}@{Bid:F2} | Net={Net:F3} | Ret={Ret:P2}",
-                            opp.BuyExchange, opp.AskPrice, opp.SellExchange, opp.BidPrice,
-                            opp.NetProfit, opp.ReturnPct);
-                    }
-                    else
-                    {
-                        _logger.LogTrace(
-                            "[OPORTUNIDAD ✗] Buy={Buy}@{Ask:F2} → Sell={Sell}@{Bid:F2} | Net={Net:F3} | Ret={Ret:P2}",
                             opp.BuyExchange, opp.AskPrice, opp.SellExchange, opp.BidPrice,
                             opp.NetProfit, opp.ReturnPct);
                     }
@@ -108,10 +116,9 @@ public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
             for (int j = 0; j < exchangeIds.Count; j++)
             {
                 if (i == j) continue;
-                var buyBook = allBooks[exchangeIds[i]];
-                var sellBook = allBooks[exchangeIds[j]];
-
-                var opp = _calculator.Evaluate(buyBook, sellBook);
+                var opp = _calculator.Evaluate(
+                    allBooks[exchangeIds[i]],
+                    allBooks[exchangeIds[j]]);
                 opportunities.Add(opp);
             }
         }

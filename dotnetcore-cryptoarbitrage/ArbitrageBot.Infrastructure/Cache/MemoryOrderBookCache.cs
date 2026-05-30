@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 using ArbitrageBot.Domain.Interfaces;
 using ArbitrageBot.Domain.Models;
 

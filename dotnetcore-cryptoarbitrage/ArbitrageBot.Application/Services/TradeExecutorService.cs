@@ -10,8 +10,8 @@ namespace ArbitrageBot.Application.Services;
 
 /// <summary>
 /// BackgroundService que consume Channel&lt;ArbitrageOpportunity&gt;,
-/// filtra por rentabilidad (IsExecutable), simula la ejecución,
-/// actualiza wallets, registra en DB y pushea via SignalR.
+/// filtra por rentabilidad, calcula volumen máximo por liquidez,
+/// simula ejecución con órdenes parciales, actualiza wallets y pushea via SignalR.
 /// </summary>
 public class TradeExecutorService : BackgroundService, ITradeExecutor
 {
@@ -55,7 +55,6 @@ public class TradeExecutorService : BackgroundService, ITradeExecutor
         {
             await foreach (var opportunity in reader.ReadAllAsync(stoppingToken))
             {
-                // Solo ejecutar si es rentable
                 if (!_calculator.IsExecutable(opportunity))
                 {
                     _logger.LogTrace("Oportunidad no ejecutable — omitida: {Buy}→{Sell}",
@@ -88,67 +87,76 @@ public class TradeExecutorService : BackgroundService, ITradeExecutor
     {
         if (_circuitBreaker.IsOpen)
         {
-            var result = CreateTradeResult(opp, false, "circuit_open");
+            var result = CreateTradeResult(opp, 0, false, "circuit_open");
             await _tradeRepository.SaveAsync(result, ct);
             return result;
         }
 
-        // Verificar fondos en ambos exchanges
+        // ─── Obtener OrderBooks actuales para liquidez real ────────────
         var buyBalance = _walletManager.GetBalance(opp.BuyExchange);
         var sellBalance = _walletManager.GetBalance(opp.SellExchange);
 
-        var usdtNeeded = opp.AskPrice * opp.Volume;
-        var btcNeeded = opp.Volume;
+        // Volumen máximo por cap de riesgo
+        var maxVolume = opp.Volume;
 
-        if (buyBalance.UsdtBalance < usdtNeeded)
+        // Ajustar por liquidez de wallets
+        var maxByUsdt = buyBalance.UsdtBalance / (opp.AskPrice > 0 ? opp.AskPrice : 1);
+        var maxByBtc = sellBalance.BtcBalance;
+
+        var executableVolume = Math.Min(Math.Min(maxVolume, maxByUsdt), maxByBtc);
+
+        if (executableVolume <= 0)
         {
-            _logger.LogWarning("Fondos insuficientes en {Exch}: necesita {Need} USDT, tiene {Has}",
-                opp.BuyExchange, usdtNeeded, buyBalance.UsdtBalance);
-            var result = CreateTradeResult(opp, false, "insufficient_funds");
+            _logger.LogWarning(
+                "Fondos insuficientes para ejecutar {Buy}→{Sell}. USDT:{U} BTC:{B}",
+                opp.BuyExchange, opp.SellExchange, maxByUsdt, maxByBtc);
+            var result = CreateTradeResult(opp, 0, false, "insufficient_funds");
             await _tradeRepository.SaveAsync(result, ct);
             return result;
         }
 
-        if (sellBalance.BtcBalance < btcNeeded)
-        {
-            _logger.LogWarning("Fondos insuficientes en {Exch}: necesita {Need} BTC, tiene {Has}",
-                opp.SellExchange, btcNeeded, sellBalance.BtcBalance);
-            var result = CreateTradeResult(opp, false, "insufficient_funds");
-            await _tradeRepository.SaveAsync(result, ct);
-            return result;
-        }
+        var usdtNeeded = opp.AskPrice * executableVolume;
+        var usdtEarned = opp.BidPrice * executableVolume;
 
-        // Ejecutar compra y venta simultáneas
-        var buyOk = _walletManager.TryExecuteBuy(opp.BuyExchange, usdtNeeded, opp.Volume);
-        var sellOk = _walletManager.TryExecuteSell(opp.SellExchange, opp.Volume, opp.BidPrice * opp.Volume);
+        // ─── Ejecutar compra y venta ────────────────────────────────────
+        var buyOk = _walletManager.TryExecuteBuy(opp.BuyExchange, usdtNeeded, executableVolume);
+        var sellOk = _walletManager.TryExecuteSell(opp.SellExchange, executableVolume, usdtEarned);
 
         if (!buyOk || !sellOk)
         {
-            _logger.LogWarning("Falló ejecución atómica del trade {Buy}→{Sell}", opp.BuyExchange, opp.SellExchange);
-            var result = CreateTradeResult(opp, false, "insufficient_funds");
+            _logger.LogWarning("Falló ejecución atómica del trade {Buy}→{Sell}",
+                opp.BuyExchange, opp.SellExchange);
+            var result = CreateTradeResult(opp, 0, false, "insufficient_funds");
             await _tradeRepository.SaveAsync(result, ct);
             return result;
         }
 
-        var tradeResult = CreateTradeResult(opp, opp.NetProfit > 0, "executed");
+        // Calcular profit real basado en el volumen parcial ejecutado
+        var actualNetProfit = opp.NetProfit * (executableVolume / opp.Volume);
+        var actualReturnPct = opp.ReturnPct; // mismo % porque es proporcional
+
+        var tradeResult = CreateTradeResult(opp, actualNetProfit, actualNetProfit > 0,
+            executableVolume < opp.Volume ? "executed_partial" : "executed");
+
         await _tradeRepository.SaveAsync(tradeResult, ct);
 
         _logger.LogInformation(
-            "[EJECUTADO ✓] {Buy}→{Sell} | Vol={Vol}BTC | Net={Net:F3} | Ret={Ret:P2}",
-            opp.BuyExchange, opp.SellExchange, opp.Volume, tradeResult.NetProfit, tradeResult.ReturnPct);
+            "[EJECUTADO ✓] {Buy}→{Sell} | Vol={Vol:F4}BTC | Net={Net:F3}USDT | Ret={Ret:P2}",
+            opp.BuyExchange, opp.SellExchange, executableVolume,
+            actualNetProfit, actualReturnPct);
 
         return tradeResult;
     }
 
     private static TradeResult CreateTradeResult(
-        ArbitrageOpportunity opp, bool isProfit, string status)
+        ArbitrageOpportunity opp, decimal netProfit, bool isProfit, string status)
     {
         return new TradeResult(
             Id: Guid.NewGuid(),
             BuyExchange: opp.BuyExchange,
             SellExchange: opp.SellExchange,
             Volume: opp.Volume,
-            NetProfit: isProfit ? opp.NetProfit : 0,
+            NetProfit: isProfit ? netProfit : 0,
             ReturnPct: isProfit ? opp.ReturnPct : 0,
             IsProfit: isProfit,
             Status: status,

@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using ArbitrageBot.Domain.Interfaces;
 using ArbitrageBot.Application.Services;
+using ArbitrageBot.Infrastructure.Feeds;
 using Microsoft.Extensions.Logging;
 
 namespace ArbitrageBot.API.Controllers;
 
 /// <summary>
-/// Estado del sistema: balances de wallets y circuit breaker.
+/// Estado del sistema: wallets, circuit breaker y conexiones a exchanges.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
@@ -15,15 +16,18 @@ public class StatusController : ControllerBase
 {
     private readonly IWalletManager _walletManager;
     private readonly CircuitBreaker _circuitBreaker;
+    private readonly FeedHealthTracker _health;
     private readonly ILogger<StatusController> _logger;
 
     public StatusController(
         IWalletManager walletManager,
         CircuitBreaker circuitBreaker,
+        FeedHealthTracker health,
         ILogger<StatusController> logger)
     {
         _walletManager = walletManager;
         _circuitBreaker = circuitBreaker;
+        _health = health;
         _logger = logger;
     }
 
@@ -63,5 +67,30 @@ public class StatusController : ControllerBase
             state.ConsecutiveLosses,
             state.RecentTradesCount
         });
+    }
+
+    /// <summary>
+    /// Obtiene el estado de conexión en vivo de cada exchange.
+    /// </summary>
+    /// <remarks>
+    /// Cada feed reporta si está conectado vía WebSocket ("connected"),
+    /// en modo fallback REST ("fallback_rest"), desconectado ("disconnected")
+    /// o con estado desconocido ("unknown").
+    /// </remarks>
+    /// <returns>Mapa de exchangeId → estado de conexión.</returns>
+    /// <response code="200">Estados de conexión retornados exitosamente.</response>
+    [HttpGet("connections")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public IActionResult GetConnections()
+    {
+        var statuses = _health.GetAllStatuses();
+        return Ok(statuses.Values.Select(s => new
+        {
+            s.ExchangeId,
+            s.Status,
+            s.Details,
+            s.LastUpdated,
+            Age = DateTime.UtcNow - s.LastUpdated
+        }));
     }
 }

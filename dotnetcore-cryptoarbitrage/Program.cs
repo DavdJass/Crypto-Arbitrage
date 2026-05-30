@@ -1,23 +1,4 @@
-var builder = WebApplication.CreateBuilder(args);
-
-// Add services to the container.
-
-builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
-
-var app = builder.Build();
-
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
-
-app.UseHttpsRedirection();
-
-app.UseAuthorization();
-
-app.MapControllers();
-
-app.Run();
+// ⚠️ ARCHIVO OBSOLETO — Eliminar.
+// El Program.cs real está en: ArbitrageBot.API/Program.cs
+// La solución ahora es multi-proyecto. Usa: dotnet build dotnetcore-cryptoarbitrage.sln
+throw new InvalidOperationException("Elimina este archivo. Usa el .sln para compilar.");
