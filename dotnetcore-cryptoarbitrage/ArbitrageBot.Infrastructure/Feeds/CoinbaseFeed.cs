@@ -49,8 +49,9 @@ public class CoinbaseFeed : IExchangeFeed, IDisposable
                 _h.SetStatus(ExchangeId, "connecting");
                 _wsCli?.Dispose();
                 _wsCli = new ClientWebSocket();
+                _wsCli.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
                 await _wsCli.ConnectAsync(new Uri(_ws), ct);
-                var sub = $"{{\"type\":\"subscribe\",\"product_ids\":[\"{_symbol}\"],\"channel\":\"level2\"}}";
+                var sub = $"{{\"type\":\"subscribe\",\"product_ids\":[\"{_symbol}\"],\"channel\":\"ticker\"}}";
                 await _wsCli.SendAsync(Encoding.UTF8.GetBytes(sub), WebSocketMessageType.Text, true, ct);
                 _h.SetStatus(ExchangeId, "connected", "WebSocket");
                 _fallback = false;
@@ -98,12 +99,12 @@ public class CoinbaseFeed : IExchangeFeed, IDisposable
     OrderBook? Parse(string raw)
     {
         var j = JObject.Parse(raw);
-        if (j["type"]?.ToString() != "snapshot" && j["type"]?.ToString() != "l2update") return null;
-        var bids = j["bids"]?.First;
-        var asks = j["asks"]?.First;
-        if (bids == null || asks == null) return null;
-        return new OrderBook(ExchangeId, (decimal)bids[0], (decimal)asks[0],
-            (decimal)(bids[1] ?? 0), (decimal)(asks[1] ?? 0), DateTime.UtcNow);
+        if (j["type"]?.ToString() != "ticker") return null;
+        var bid = j["bid"];
+        var ask = j["ask"];
+        if (bid == null || ask == null) return null;
+        return new OrderBook(ExchangeId, (decimal)bid, (decimal)ask,
+            (decimal)(j["bid_size"] ?? 0), (decimal)(j["ask_size"] ?? 0), DateTime.UtcNow);
     }
 
     OrderBook? ParseRest(string raw)

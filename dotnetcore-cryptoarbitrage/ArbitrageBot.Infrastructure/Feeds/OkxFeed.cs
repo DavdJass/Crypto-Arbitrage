@@ -40,6 +40,7 @@ public sealed class OkxFeed : IExchangeFeed, IDisposable
             try
             {
                 _wsCli?.Dispose(); _wsCli = new ClientWebSocket();
+                _wsCli.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
                 await _wsCli.ConnectAsync(new Uri(_ws), ct);
                 var sub = $"{{\"op\":\"subscribe\",\"args\":[{{\"channel\":\"bbo-tbt\",\"instId\":\"{_symbol}\"}}]}}";
                 await _wsCli.SendAsync(Encoding.UTF8.GetBytes(sub), WebSocketMessageType.Text, true, ct);

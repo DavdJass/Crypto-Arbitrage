@@ -65,6 +65,7 @@ public class BybitFeed : IExchangeFeed, IDisposable
 
                 _ws?.Dispose();
                 _ws = new ClientWebSocket();
+                _ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
                 await _ws.ConnectAsync(new Uri(_wsUrl), ct);
 
                 var subscribeMsg = $"{{\"op\":\"subscribe\",\"args\":[\"orderbook.1.{_symbol}\"]}}";

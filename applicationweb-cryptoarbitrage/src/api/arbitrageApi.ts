@@ -1,6 +1,6 @@
 import type { OrderBook, TradeResult, TradeSummary, WalletBalance, FeedStatus, CircuitBreakerState } from '../types';
 
-const API_KEY = 'dev-key';
+const API_KEY = import.meta.env.VITE_API_KEY || 'dev-key';
 
 const headers: Record<string, string> = {
   'Content-Type': 'application/json',

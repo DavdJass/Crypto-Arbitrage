@@ -66,6 +66,7 @@ public class KrakenFeed : IExchangeFeed, IDisposable
 
                 _ws?.Dispose();
                 _ws = new ClientWebSocket();
+                _ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
                 await _ws.ConnectAsync(new Uri(_wsUrl), ct);
 
                 var subscribeMsg = $"{{\"event\":\"subscribe\",\"pair\":[\"{_symbol}\"],\"subscription\":{{\"name\":\"book\",\"depth\":10}}}}";

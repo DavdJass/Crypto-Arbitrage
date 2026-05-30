@@ -63,6 +63,7 @@ public class BinanceFeed : IExchangeFeed, IDisposable
 
                 _ws?.Dispose();
                 _ws = new ClientWebSocket();
+                _ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
                 await _ws.ConnectAsync(new Uri(_wsUrl), ct);
                 _health.SetStatus(ExchangeId, "connected", "WebSocket conectado");
                 _useRestFallback = false;

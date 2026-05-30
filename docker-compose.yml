@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./dotnetcore-cryptoarbitrage
+      dockerfile: Dockerfile
+    ports:
+      - "5152:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - SQLITE_PATH=/data/arbitrage.db
+      # Para Railway/Postgres, define:
+      # - ConnectionStrings__Postgres=Host=postgres;Port=5432;Database=arbitrage_bot;Username=arbitrage;Password=arbitrage123
+    volumes:
+      - arbitrage-data:/data
+    restart: unless-stopped
+
+  # ── PostgreSQL opcional ─────────────────────
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_DB: arbitrage_bot
+  #     POSTGRES_USER: arbitrage
+  #     POSTGRES_PASSWORD: arbitrage123
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+
+  frontend:
+    build:
+      context: ./applicationweb-cryptoarbitrage
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  arbitrage-data:
+  # pgdata:

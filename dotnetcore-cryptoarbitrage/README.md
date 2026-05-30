@@ -179,7 +179,77 @@ returnPct  = netProfit / buyCost
 
 - **Backend:** .NET 8, C#, ASP.NET Core Web API
 - **Tiempo real:** SignalR + System.Threading.Channels
-- **DB/almacenamiento:** PostgreSQL (Dapper) o In-Memory
+- **DB/almacenamiento:** SQLite (Dapper, por defecto) o PostgreSQL
 - **Cache:** ConcurrentDictionary (sin locks)
-- **Frontend:** React + Vite + Recharts (pendiente)
-- **Deploy:** Railway (back) + Vercel (front)
+- **Frontend:** React 18 + TypeScript + Vite + Recharts + SignalR client
+- **Deploy:** Railway / Render / Fly.io (back) + Vercel (front)  ← ver sección Deploy
+
+---
+
+## 🐳 Despliegue con Docker
+
+### Requisitos
+- [Docker](https://docs.docker.com/get-docker/) y Docker Compose
+
+```bash
+# Clonar y desplegar todo (backend + frontend)
+git clone <repo-url>
+cd Crypto-Arbitrage
+docker compose up -d
+```
+
+- **Frontend** → http://localhost:3000
+- **Backend API** → http://localhost:5152/swagger
+- **SignalR Hub** → ws://localhost:5152/hubs/arbitrage
+
+---
+
+## 🚀 Deploy en la Nube
+
+### Backend → Railway / Render / Fly.io
+
+Cada plataforma detecta automaticamente el `Dockerfile` en `dotnetcore-cryptoarbitrage/`.
+
+```bash
+# Railway (ejemplo)
+railway login
+railway init
+railway up
+
+# Variables de entorno necesarias:
+# - ASPNETCORE_ENVIRONMENT=Production
+# - SQLITE_PATH=/data/arbitrage.db
+# - ConnectionStrings__Postgres=... (opcional, Railway da Postgres automatico)
+```
+
+### Frontend → Vercel
+
+```bash
+cd applicationweb-cryptoarbitrage
+vercel --prod
+
+# Variables de entorno en Vercel:
+# VITE_API_KEY=arbibot-secret-key-2024
+# VITE_BACKEND_URL=https://tu-backend.railway.app
+```
+
+Cuando despliegues el frontend separado del backend, actualiza `vite.config.ts` para apuntar al backend remoto en vez de `localhost:5152`.
+
+---
+
+## 🌐 Exchanges Soportados (10)
+
+| Exchange | WebSocket | REST Fallback | Pares |
+|----------|-----------|---------------|-------|
+| Binance  | ✅ depth5 @100ms | ✅ | BTCUSDT |
+| Kraken   | ✅ book-10 | ✅ | XBT/USD |
+| Bybit    | ✅ orderbook.1 | ✅ | BTCUSDT |
+| Coinbase | ✅ level2 | ✅ | BTC-USD |
+| OKX      | ✅ bbo-tbt | ✅ | BTC-USDT |
+| Bitfinex | ✅ book P0 | ✅ | tBTCUSD |
+| KuCoin   | REST polling | ✅ | BTC-USDT |
+| Gate.io  | ✅ order_book | ✅ | BTC_USDT |
+| Bitstamp | ✅ order_book | ✅ | btcusd |
+| Gemini   | ✅ l2 | ✅ | BTCUSD |
+
+> **Nota:** KuCoin requiere token dinamico para WS — se usa REST polling cada 1.5s.

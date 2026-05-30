@@ -1,6 +1,5 @@
-<!-- ⚠️ ARCHIVO OBSOLETO — Eliminar.
-     La solución ahora es multi-proyecto (4 capas).
-     Usa dotnetcore-cryptoarbitrage.sln para compilar. -->
+<!-- Marcador historico. El proyecto real esta en ArbitrageBot.API/.
+     Compila con: dotnet build dotnetcore-cryptoarbitrage.sln -->
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>

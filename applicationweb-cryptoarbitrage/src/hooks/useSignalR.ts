@@ -6,7 +6,7 @@ import type {
   TradeResult,
 } from '../types';
 
-const API_KEY = 'dev-key'; // Cambiar en producción
+const API_KEY = import.meta.env.VITE_API_KEY || 'dev-key';
 
 export function useSignalR() {
   const [connected, setConnected] = useState(false);
