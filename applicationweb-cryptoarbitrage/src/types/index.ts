@@ -18,6 +18,16 @@ export interface ArbitrageOpportunity {
   returnPct: number;
   detectedAt: string;
 }
+export interface TriangularOpportunity {
+  exchangeId: string;
+  path: string;
+  startAmountBtc: number;
+  endAmountBtc: number;
+  netProfitBtc: number;
+  returnPct: number;
+  stepRates: number[];
+  detectedAt: string;
+}
 export interface TradeResult {
   id: string;
   buyExchange: string;

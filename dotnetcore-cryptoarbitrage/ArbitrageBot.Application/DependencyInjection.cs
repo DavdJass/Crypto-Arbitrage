@@ -16,6 +16,7 @@ public static class DependencyInjection
         services.AddSingleton<CircuitBreaker>();
         services.AddSingleton<ProfitCalculator>();
         services.AddSingleton<IWalletManager, WalletManager>();
+        services.AddSingleton<TriangularArbitrageService>(); // Arbitraje triangular
 
         // ─── BackgroundServices del pipeline ──────────────────
         // Registramos los tipos concretos como singletons para que
@@ -31,6 +32,9 @@ public static class DependencyInjection
             sp => sp.GetRequiredService<ArbitrageDetectorService>());
         services.AddHostedService<TradeExecutorService>(
             sp => sp.GetRequiredService<TradeExecutorService>());
+
+        services.AddHostedService<TriangularArbitrageService>(
+            sp => sp.GetRequiredService<TriangularArbitrageService>());
 
         // Registro de interfaces que apuntan a los mismos singletons
         services.AddSingleton<IArbitrageDetector>(
