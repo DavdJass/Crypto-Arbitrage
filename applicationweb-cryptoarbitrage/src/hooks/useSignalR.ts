@@ -10,6 +10,29 @@ import type {
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'dev-key';
 const HUB_BASE = import.meta.env.VITE_BACKEND_URL || '';
+const MAX_NON_OBSERVED = 15;
+const MAX_OBSERVED = 15;
+
+function pairKey(o: StoredOpportunity) {
+  return `${o.buyExchange}→${o.sellExchange}`;
+}
+
+/** Dedup observadas por par (mejor spread) y limita colas. */
+export function normalizeOpportunities(ops: StoredOpportunity[]): StoredOpportunity[] {
+  const nonObserved = ops.filter(o => o.status !== 'observed').slice(0, MAX_NON_OBSERVED);
+  const byPair = new Map<string, StoredOpportunity>();
+  for (const o of ops.filter(o => o.status === 'observed')) {
+    const key = pairKey(o);
+    const existing = byPair.get(key);
+    const spread = o.bidPrice - o.askPrice;
+    const existingSpread = existing ? existing.bidPrice - existing.askPrice : -Infinity;
+    if (!existing || spread > existingSpread) byPair.set(key, o);
+  }
+  const observed = [...byPair.values()]
+    .sort((a, b) => (b.bidPrice - b.askPrice) - (a.bidPrice - a.askPrice))
+    .slice(0, MAX_OBSERVED);
+  return [...nonObserved, ...observed];
+}
 
 export function useSignalR() {
   const [connected, setConnected] = useState(false);
@@ -26,7 +49,7 @@ export function useSignalR() {
         arbitrageApi.getTrades(50),
         arbitrageApi.getOrderBooks(),
       ]);
-      setOpportunities(storedOps);
+      setOpportunities(normalizeOpportunities(storedOps));
       setTrades(recentTrades);
       const bookMap: Record<string, OrderBook> = {};
       for (const book of books) {
@@ -54,28 +77,17 @@ export function useSignalR() {
     conn.on('OpportunityFound', (data: StoredOpportunity) => {
       setOpportunities(prev => {
         if (data.status === 'observed') {
-          // Upsert: reemplaza si ya existe ese par, si no lo agrega.
-          // Después ordena por spread desc y muestra solo los mejores 15.
-          const others = prev.filter(
-            o => !(o.status === 'observed' &&
-                   o.buyExchange === data.buyExchange &&
-                   o.sellExchange === data.sellExchange)
+          const withoutPair = prev.filter(
+            o => !(o.status === 'observed' && pairKey(o) === pairKey(data))
           );
-          const updatedObserved = [...others.filter(o => o.status === 'observed'), data]
-            .sort((a, b) => (b.bidPrice - b.askPrice) - (a.bidPrice - a.askPrice))
-            .slice(0, 15);
-          return [...prev.filter(o => o.status !== 'observed'), ...updatedObserved];
+          return normalizeOpportunities([...withoutPair, data]);
         }
-        // "detected" / "executed": evento nuevo al principio, máx 15
-        return [data, ...prev.filter(o => o.status !== 'observed')]
-          .slice(0, 15)
-          .concat(prev.filter(o => o.status === 'observed'));
+        return normalizeOpportunities([data, ...prev.filter(o => o.status !== 'observed')]);
       });
     });
 
     conn.on('TradeExecuted', (data: TradeResult) => {
       setTrades(prev => [data, ...prev].slice(0, 100));
-      // Mark the corresponding opportunity as executed
       setOpportunities(prev =>
         prev.map(op =>
           op.buyExchange === data.buyExchange &&
@@ -92,7 +104,10 @@ export function useSignalR() {
     });
 
     conn.onreconnecting(() => setConnected(false));
-    conn.onreconnected(() => setConnected(true));
+    conn.onreconnected(async () => {
+      setConnected(true);
+      await loadHistory();
+    });
 
     try {
       await conn.start();
@@ -100,14 +115,25 @@ export function useSignalR() {
       connectionRef.current = conn;
     } catch (err) {
       console.error('SignalR connection failed:', err);
+      try {
+        await conn.stop();
+      } catch {
+        /* ignore */
+      }
       setTimeout(() => connect(), 3000);
     }
-  }, []);
+  }, [loadHistory]);
 
   useEffect(() => {
-    void loadHistory();
-    void connect();
+    let cancelled = false;
+
+    (async () => {
+      await loadHistory();
+      if (!cancelled) await connect();
+    })();
+
     return () => {
+      cancelled = true;
       connectionRef.current?.stop();
     };
   }, [connect, loadHistory]);

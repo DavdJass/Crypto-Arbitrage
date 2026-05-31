@@ -92,13 +92,17 @@ public class WalletManager : IWalletManager
                 !_wallets.TryGetValue(sellExchange, out var sellWallet))
                 return false;
 
-            if (buyWallet.UsdtBalance < settlement.BuyCostUsdt ||
+            var totalBuyDebit = settlement.BuyCostUsdt
+                + settlement.WithdrawalFeeUsdt
+                + settlement.LatencyCostUsdt;
+
+            if (buyWallet.UsdtBalance < totalBuyDebit ||
                 sellWallet.BtcBalance < settlement.Volume)
                 return false;
 
             _wallets[buyExchange] = buyWallet with
             {
-                UsdtBalance = buyWallet.UsdtBalance - settlement.BuyCostUsdt,
+                UsdtBalance = buyWallet.UsdtBalance - totalBuyDebit,
                 BtcBalance = buyWallet.BtcBalance + settlement.Volume
             };
 

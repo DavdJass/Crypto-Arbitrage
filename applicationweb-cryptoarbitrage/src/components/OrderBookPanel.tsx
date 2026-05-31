@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type RefObject } from 'react';
 import type { OrderBook } from '../types';
 
 const exchangeMeta: Record<string, { color: string; cls: string }> = {
@@ -16,7 +16,13 @@ const exchangeMeta: Record<string, { color: string; cls: string }> = {
 
 type FlashDir = 'up' | 'down' | 'none';
 
-function useFlash(value: number): { flash: FlashDir; ref: React.RefObject<number | null> } {
+function formatAge(timestamp: string): string {
+  const sec = Math.max(0, Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000));
+  if (sec < 60) return `${sec}s`;
+  return `${Math.floor(sec / 60)}m`;
+}
+
+function useFlash(value: number): { flash: FlashDir; ref: RefObject<number | null> } {
   const ref = useRef<number | null>(null);
   const [flash, setFlash] = useState<FlashDir>('none');
 
@@ -50,8 +56,12 @@ function FlashPrice({ value, cls }: { value: number; cls: string }) {
   );
 }
 
+const EXCHANGE_ORDER = Object.keys(exchangeMeta);
+
 export function OrderBookPanel({ books }: { books: Record<string, OrderBook> }) {
-  const entries = Object.entries(books);
+  const entries = Object.entries(books).sort(
+    ([a], [b]) => EXCHANGE_ORDER.indexOf(a) - EXCHANGE_ORDER.indexOf(b)
+  );
 
   return (
     <div className="orderbook-grid">
@@ -65,6 +75,11 @@ export function OrderBookPanel({ books }: { books: Record<string, OrderBook> }) 
             <div className="exchange-header">
               <span className="exchange-dot" style={{ background: meta.color }} />
               <span className="exchange-name" style={{ color: meta.color }}>{id}</span>
+              {book.timestamp && (
+                <span className="dim" style={{ marginLeft: 'auto', fontSize: 11 }}>
+                  {formatAge(book.timestamp)}
+                </span>
+              )}
             </div>
 
             <div className="price-row">

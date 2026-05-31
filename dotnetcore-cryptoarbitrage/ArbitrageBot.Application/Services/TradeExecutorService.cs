@@ -57,7 +57,8 @@ public class TradeExecutorService : BackgroundService, ITradeExecutor
 
                 var result = await ExecuteTradeAsync(opp, ct);
                 await _outputChannel.Writer.WriteAsync(result, ct);
-                _circuitBreaker.RecordTrade(result.IsProfit);
+                if (result.Status is "executed" or "executed_partial")
+                    _circuitBreaker.RecordTrade(result.IsProfit);
                 await _hubContext.Clients.All.SendAsync("TradeExecuted", result, ct);
             }
         }
@@ -88,6 +89,8 @@ public class TradeExecutorService : BackgroundService, ITradeExecutor
         }
 
         var execVol = currentOpp.Volume;
+        var liquidityCap = Math.Min(bookBuy.AskVolume, bookSell.BidVolume);
+
         var settlement = _calculator.ComputeSettlement(
             currentOpp.BuyExchange,
             currentOpp.SellExchange,
@@ -99,7 +102,7 @@ public class TradeExecutorService : BackgroundService, ITradeExecutor
                 currentOpp.BuyExchange, currentOpp.SellExchange, settlement))
             return await SaveAndReturn(opp, 0, 0, 0, false, "insufficient_funds", ct);
 
-        var isPartialByLiquidity = execVol < _maxVolumeBtc;
+        var isPartialByLiquidity = liquidityCap < _maxVolumeBtc;
         var status = isPartialByLiquidity ? "executed_partial" : "executed";
 
         _logger.LogInformation("[✓] {B}→{S} Vol={V:F4} Net={P:F3} Lat={L}ms",

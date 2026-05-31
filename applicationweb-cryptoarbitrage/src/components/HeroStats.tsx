@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { arbitrageApi } from '../api/arbitrageApi';
 import type { TradeSummary, TradeResult } from '../types';
 
-const INITIAL_CAPITAL_USDT = 50_000;
+const EXCHANGE_COUNT = 10;
+const INITIAL_USDT_PER_EXCHANGE = 50_000;
+const TOTAL_INITIAL_CAPITAL_USDT = EXCHANGE_COUNT * INITIAL_USDT_PER_EXCHANGE;
 
 function formatPnl(pnl: number): string {
   const sign = pnl >= 0 ? '+' : '';
@@ -61,14 +63,15 @@ export function HeroStats({ trades }: { trades: TradeResult[] }) {
   const ss = (elapsedSec % 60).toString().padStart(2, '0');
 
   const pnl = summary?.totalPnl ?? 0;
-  const totalPct = INITIAL_CAPITAL_USDT > 0 ? (pnl / INITIAL_CAPITAL_USDT) * 100 : 0;
+  const totalPct =
+    TOTAL_INITIAL_CAPITAL_USDT > 0 ? (pnl / TOTAL_INITIAL_CAPITAL_USDT) * 100 : 0;
 
   return (
     <div className="hero-stats">
       <Kpi
-        label="PnL Sesión"
+        label="PnL Total"
         value={formatPnl(pnl)}
-        sub={`${totalPct >= 0 ? '+' : ''}${totalPct.toFixed(4)}% sobre capital`}
+        sub={`${totalPct >= 0 ? '+' : ''}${totalPct.toFixed(4)}% sobre $${(TOTAL_INITIAL_CAPITAL_USDT / 1000).toFixed(0)}k`}
         positive={pnl >= 0}
       />
       <Kpi

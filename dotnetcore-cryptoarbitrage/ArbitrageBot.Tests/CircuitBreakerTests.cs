@@ -7,11 +7,11 @@ namespace ArbitrageBot.Tests;
 
 public class CircuitBreakerTests
 {
-    private CircuitBreaker CreateBreaker(int window = 5, int maxLosses = 3, int cooldown = 30)
+    private CircuitBreaker CreateBreaker(int maxLosses = 3, int cooldown = 30)
     {
         var opts = Options.Create(new CircuitBreakerOptions
         {
-            WindowSize = window,
+            WindowSize = 5,
             MaxLossesBeforeOpen = maxLosses,
             CooldownSeconds = cooldown
         });
@@ -36,42 +36,37 @@ public class CircuitBreakerTests
     [Fact]
     public void RecordTrade_ThreeConsecutiveLosses_OpensCircuit()
     {
-        var cb = CreateBreaker(window: 5, maxLosses: 3, cooldown: 30);
+        var cb = CreateBreaker(maxLosses: 3, cooldown: 30);
 
-        cb.RecordTrade(false); // loss 1
-        cb.RecordTrade(true);  // profit
-        cb.RecordTrade(false); // loss 2
-        cb.RecordTrade(false); // loss 3
-        cb.RecordTrade(false); // loss 4 → 3 de 5 = OPEN
+        cb.RecordTrade(false);
+        cb.RecordTrade(false);
+        cb.RecordTrade(false);
 
         Assert.True(cb.IsOpen);
     }
 
     [Fact]
-    public void RecordTrade_ThreeLossesInWindow_OpensCircuit()
+    public void RecordTrade_LossesBrokenByProfit_DoesNotOpen()
     {
-        var cb = CreateBreaker(window: 5, maxLosses: 3, cooldown: 30);
+        var cb = CreateBreaker(maxLosses: 3, cooldown: 30);
 
-        // Llenar window con 3 losses de 5
-        cb.RecordTrade(false);
         cb.RecordTrade(false);
         cb.RecordTrade(false);
         cb.RecordTrade(true);
-        cb.RecordTrade(true);
+        cb.RecordTrade(false);
+        cb.RecordTrade(false);
 
-        Assert.True(cb.IsOpen);
+        Assert.False(cb.IsOpen);
     }
 
     [Fact]
-    public void RecordTrade_SixteenTrades_WindowSlidesCorrectly()
+    public void RecordTrade_ProfitResetsConsecutiveStreak()
     {
-        var cb = CreateBreaker(window: 5, maxLosses: 3, cooldown: 30);
+        var cb = CreateBreaker(maxLosses: 3, cooldown: 30);
 
-        // Llenar con trades buenos
         for (int i = 0; i < 10; i++) cb.RecordTrade(true);
         Assert.False(cb.IsOpen);
 
-        // Ahora 3 losses seguidos
         cb.RecordTrade(false);
         cb.RecordTrade(false);
         cb.RecordTrade(false);
@@ -79,21 +74,16 @@ public class CircuitBreakerTests
     }
 
     [Fact]
-    public void GetState_ReflectsCurrentState()
+    public void GetState_ReflectsConsecutiveLosses()
     {
-        var cb = CreateBreaker(window: 5, maxLosses: 3, cooldown: 30);
+        var cb = CreateBreaker(maxLosses: 3, cooldown: 30);
 
         cb.RecordTrade(false);
         cb.RecordTrade(false);
-        cb.RecordTrade(false);
-        cb.RecordTrade(true);
-        cb.RecordTrade(true);
 
         var state = cb.GetState();
-        Assert.True(state.IsOpen);
-        Assert.Equal(3, state.LossCountInWindow);
-        Assert.Equal(5, state.RecentTradesCount);
-        Assert.NotNull(state.OpenedAt);
-        Assert.NotNull(state.OpenUntil);
+        Assert.False(state.IsOpen);
+        Assert.Equal(2, state.LossCountInWindow);
+        Assert.Equal(3, state.MaxLossesBeforeOpen);
     }
 }

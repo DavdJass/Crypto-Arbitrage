@@ -101,10 +101,11 @@ public class ProfitCalculator
         var buyFee = grossBuy * tradingFeeBuy;
         var sellFee = grossSell * tradingFeeSell;
         var slippage = askPrice * volume * _arbOptions.SlippagePct;
+        var latencyCost = grossBuy * (_arbOptions.NetworkLatencyMs / 1000m) * _arbOptions.LatencyRiskPctPerSecond;
 
         var buyCostUsdt = grossBuy + buyFee;
         var sellProceedsUsdt = grossSell - sellFee - slippage;
-        var netProfit = sellProceedsUsdt - buyCostUsdt - withdrawalFee;
+        var netProfit = sellProceedsUsdt - buyCostUsdt - withdrawalFee - latencyCost;
 
         return new ExecutionSettlement(
             volume,
@@ -113,6 +114,7 @@ public class ProfitCalculator
             buyFee + sellFee,
             slippage,
             withdrawalFee,
+            latencyCost,
             netProfit);
     }
 

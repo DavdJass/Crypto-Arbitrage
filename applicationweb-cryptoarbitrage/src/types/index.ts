@@ -69,6 +69,7 @@ export interface CircuitBreakerState {
   openUntil: string | null;
   lossCountInWindow: number;
   recentTradesCount: number;
+  maxLossesBeforeOpen: number;
 }
 export interface FeedStatus {
   exchangeId: string;

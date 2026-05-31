@@ -5,14 +5,14 @@ using Microsoft.Extensions.Options;
 namespace ArbitrageBot.Application.Services;
 
 /// <summary>
-/// Circuit Breaker: si N de los últimos M trades son pérdidas,
+/// Circuit Breaker: si hay N pérdidas consecutivas en trades ejecutados,
 /// pausa la detección por CooldownSeconds segundos.
 /// Thread-safe.
 /// </summary>
 public class CircuitBreaker
 {
     private readonly CircuitBreakerOptions _options;
-    private readonly LinkedList<bool> _recentResults = new(); // true = ganancia, false = pérdida
+    private int _consecutiveLosses;
     private DateTime? _openUntil;
     private readonly object _lock = new();
 
@@ -39,22 +39,20 @@ public class CircuitBreaker
         }
     }
 
-    /// <summary>Registra el resultado de un trade y decide si abrir el circuito.</summary>
+    /// <summary>Registra el resultado de un trade ejecutado y decide si abrir el circuito.</summary>
     public void RecordTrade(bool isProfit)
     {
         lock (_lock)
         {
-            _recentResults.AddLast(isProfit);
-            while (_recentResults.Count > _options.WindowSize)
-                _recentResults.RemoveFirst();
-
-            var losses = _recentResults.Count(r => !r);
-
-            if (_recentResults.Count >= _options.WindowSize
-                && losses >= _options.MaxLossesBeforeOpen)
+            if (isProfit)
             {
-                _openUntil = DateTime.UtcNow.AddSeconds(_options.CooldownSeconds);
+                _consecutiveLosses = 0;
+                return;
             }
+
+            _consecutiveLosses++;
+            if (_consecutiveLosses >= _options.MaxLossesBeforeOpen)
+                _openUntil = DateTime.UtcNow.AddSeconds(_options.CooldownSeconds);
         }
     }
 
@@ -65,18 +63,17 @@ public class CircuitBreaker
             var now = DateTime.UtcNow;
             var isExpired = _openUntil is not null && now >= _openUntil.Value;
 
-            // Alinear estado expirado igual que el getter IsOpen
             if (isExpired) _openUntil = null;
 
             var isOpen = _openUntil is not null;
-            var losses = _recentResults.Count(r => !r);
 
             return new CircuitBreakerState(
                 IsOpen: isOpen,
                 OpenedAt: _openUntil?.AddSeconds(-_options.CooldownSeconds),
                 OpenUntil: _openUntil,
-                LossCountInWindow: losses,
-                RecentTradesCount: _recentResults.Count
+                LossCountInWindow: _consecutiveLosses,
+                RecentTradesCount: _consecutiveLosses,
+                MaxLossesBeforeOpen: _options.MaxLossesBeforeOpen
             );
         }
     }

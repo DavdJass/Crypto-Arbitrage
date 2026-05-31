@@ -8,5 +8,6 @@ public record CircuitBreakerState(
     DateTime? OpenedAt,
     DateTime? OpenUntil,
     int LossCountInWindow,
-    int RecentTradesCount
+    int RecentTradesCount,
+    int MaxLossesBeforeOpen
 );

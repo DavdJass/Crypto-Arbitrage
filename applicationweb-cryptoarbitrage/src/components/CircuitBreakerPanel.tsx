@@ -15,7 +15,7 @@ export function CircuitBreakerPanel() {
 
   if (!cb) return null;
 
-  const maxLosses = 5;
+  const maxLosses = cb.maxLossesBeforeOpen ?? 3;
   const pct = Math.min(100, (cb.lossCountInWindow / maxLosses) * 100);
   const barColor = cb.isOpen
     ? 'var(--red)'
@@ -37,7 +37,7 @@ export function CircuitBreakerPanel() {
       </div>
 
       <div className="card-row">
-        <span className="label">Pérdidas en ventana</span>
+        <span className="label">Pérdidas consecutivas</span>
         <span className="mono">
           {cb.lossCountInWindow}<span className="dim">/{maxLosses}</span>
         </span>

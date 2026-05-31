@@ -10,5 +10,6 @@ public record ExecutionSettlement(
     decimal TradingFeesUsdt,
     decimal SlippageUsdt,
     decimal WithdrawalFeeUsdt,
+    decimal LatencyCostUsdt,
     decimal NetProfit
 );

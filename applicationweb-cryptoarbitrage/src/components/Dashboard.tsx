@@ -14,9 +14,10 @@ export function Dashboard() {
   const { connected, orderBooks, opportunities, trades, triangularOpps, clearOpportunities } =
     useSignalR();
 
-  const executableCount = opportunities.filter(o => o.status === 'executed' || o.status === 'detected').length;
+  const executableCount = opportunities.filter(
+    o => o.status === 'executed' || o.status === 'detected'
+  ).length;
   const triangularCount = triangularOpps.length;
-  const totalLive = executableCount + triangularCount;
 
   return (
     <div className="dashboard">
@@ -24,9 +25,9 @@ export function Dashboard() {
         <h1><span className="btc-icon">₿</span> Crypto Arbitrage Bot</h1>
         <div className="header-controls">
           <ThemeToggle />
-          {totalLive > 0 && (
+          {executableCount > 0 && (
             <span className="badge badge-ok animate-pulse">
-              {totalLive} oportunidades
+              {executableCount} ejecutables
             </span>
           )}
           {triangularCount > 0 && (
@@ -88,8 +89,8 @@ export function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {triangularOpps.map((op, i) => (
-                  <tr key={i} className="row-executable" style={{ borderLeft: '3px solid var(--gold)' }}>
+                {triangularOpps.map((op) => (
+                  <tr key={`${op.exchangeId}-${op.detectedAt}`} className="row-executable" style={{ borderLeft: '3px solid var(--gold)' }}>
                     <td><span className="gold">{op.exchangeId}</span></td>
                     <td className="mono dim">{op.path}</td>
                     <td className="mono">{op.startAmountBtc.toFixed(6)}</td>
@@ -108,7 +109,7 @@ export function Dashboard() {
       <section>
         <div className="mid-row">
           <div className="col-2">
-            <PnLChart />
+            <PnLChart trades={trades} />
           </div>
           <div className="col-1">
             <WalletPanel />
