@@ -9,8 +9,8 @@ COPY ArbitrageBot.Application/ArbitrageBot.Application.csproj ArbitrageBot.Appli
 COPY ArbitrageBot.Infrastructure/ArbitrageBot.Infrastructure.csproj ArbitrageBot.Infrastructure/
 COPY ArbitrageBot.API/ArbitrageBot.API.csproj ArbitrageBot.API/
 
-# Restore
-RUN dotnet restore
+# Restore API only (sln includes Tests, not copied into image)
+RUN dotnet restore ArbitrageBot.API/ArbitrageBot.API.csproj
 
 # Copy full source
 COPY ArbitrageBot.Domain/ ArbitrageBot.Domain/
