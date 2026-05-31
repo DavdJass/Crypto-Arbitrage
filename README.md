@@ -2,7 +2,7 @@
 
 Sistema de detección y **simulación de arbitraje BTC/USDT en tiempo real** entre **10 exchanges simultáneos**. Construido con **.NET 8** (backend) y **React 18** (frontend), comunicados por **SignalR WebSockets**.
 
-> **Modo simulación:** todas las operaciones son virtuales. Los balances parten de 50,000 USDT + 0.5 BTC por exchange y se actualizan con fees, slippage y costos de retiro reales.
+> **Modo simulación:** todas las operaciones son virtuales. Los balances parten de 50,000 USDT + 0.5 BTC por exchange y se actualizan con fees, slippage, costo de latencia y fees de retiro — alineados con el `netProfit` calculado.
 
 ---
 
@@ -92,7 +92,7 @@ Este bot escanea **90 pares posibles** (10 exchanges × 9 combinaciones) en cada
 │  │  ├─ Verifica CircuitBreaker                                 │    │
 │  │  ├─ Verifica fondos (USDT + BTC por exchange)               │    │
 │  │  ├─ Calcula volumen real (limitado por liquidez del book)    │    │
-│  │  ├─ Ejecuta ExecutionSettlement (fees + slippage exactos)    │    │
+│  │  ├─ Ejecuta ExecutionSettlement (fees, slippage, latencia)     │    │
 │  │  ├─ Actualiza WalletManager                                  │    │
 │  │  └─ Guarda TradeResult en repositorio                       │    │
 │  └─────────────────────────────────────────────────────────────┘    │
@@ -114,9 +114,8 @@ Este bot escanea **90 pares posibles** (10 exchanges × 9 combinaciones) en cada
                      ┌──────────────────────────────────┐
                      │        REACT DASHBOARD           │
                      │                                  │
-                     │  HeroStats  (PnL, win rate,      │
-                     │             último trade)        │
-                     │  OrderBookPanel  (flash prices)  │
+                     │  HeroStats  (PnL total, win rate)│
+                     │  OrderBookPanel  (flash + edad)  │
                      │  OpportunitiesTable + Detail     │
                      │  WalletPanel  (ΔUSDT, ΔBTC)      │
                      │  CircuitBreakerPanel             │
@@ -148,7 +147,8 @@ ArbitrageBot.Infrastructure ← Adaptadores externos
     │
 ArbitrageBot.Domain       ← Entidades, interfaces, configuración
         Models: OrderBook, ArbitrageOpportunity, StoredOpportunity,
-                TradeResult, ExecutionSettlement, CircuitBreakerState
+                TradeResult, ExecutionSettlement (incl. LatencyCostUsdt),
+                CircuitBreakerState (incl. MaxLossesBeforeOpen)
         Interfaces: IOrderBookFeed, IOrderBookAggregator,
                     ITradeRepository, IOpportunityRepository,
                     IWalletManager
@@ -204,10 +204,15 @@ Paso 4 — Slippage estimado
 Paso 5 — Fee de retiro
   withdrawalFee = WithdrawalFeeUsdt_A   (fee fijo en USDT del exchange origen)
 
-Paso 6 — Profit neto
-  netProfit = sellProceeds − buyCost − slippage − withdrawalFee
+Paso 6 — Costo de latencia de red (explícito en la fórmula)
+  grossBuy = askPrice × volumen
+  latencyCost = grossBuy × (NetworkLatencyMs / 1000) × LatencyRiskPctPerSecond
+  (default: 150 ms × 0.1%/s ≈ 0.015% del notional de compra)
 
-Paso 7 — Retorno neto
+Paso 7 — Profit neto
+  netProfit = sellProceeds − buyCost − slippage − withdrawalFee − latencyCost
+
+Paso 8 — Retorno neto
   returnPct = netProfit / buyCost
 
   → EJECUTAR si returnPct > MinReturnPct (0.2% por defecto)
@@ -223,8 +228,9 @@ buyCost       = 74,177.60 × 0.0675 × 1.0008  = $5,007.97
 sellProceeds  = 74,178.98 × 0.0675 × 0.9970  = $4,990.01  ← fees restan
 slippage      = 74,177.60 × 0.0675 × 0.0005  = $2.50
 withdrawalFee = $1.50  (OKX)
+latencyCost   = 5,006.84 × 0.15 × 0.001     ≈ $0.75
 
-netProfit = 4,990.01 − 5,007.97 − 2.50 − 1.50 = −$21.96   ← Spread insuficiente
+netProfit = 4,990.01 − 5,007.97 − 2.50 − 1.50 − 0.75 = −$22.71   ← Spread insuficiente
 ```
 
 > En mercados reales eficientes las oportunidades con retorno neto positivo son raras y duran milisegundos. El bot las detecta en cuanto llega el tick y las marca como "detectable".
@@ -256,15 +262,15 @@ El frontend React muestra:
 
 | Sección | Descripción |
 |---------|-------------|
-| **Hero Stats** | PnL sesión, Win Rate, último trade ejecutado, cronómetro de sesión |
-| **Order Books** | Bid/Ask con animación de flash verde/rojo en cada cambio de precio |
+| **Hero Stats** | PnL total (DB), % sobre capital $500k (10×50k), Win Rate, último trade, cronómetro de página |
+| **Order Books** | Bid/Ask con flash verde/rojo + edad del tick (ej. `12s`) |
 | **Rendimiento** | Feeds activos, latencia promedio, estado de conexiones |
-| **Circuit Breaker** | Estado, barra de riesgo, tiempo de reapertura |
-| **Oportunidades** | Tabla live de las 30 más recientes (observed: upsert por par, detected: nuevas primeras) |
-| **Detalle de Oportunidad** | Modal con desglose completo: fees, slippage, motivo de decisión |
-| **Arbitraje Triangular** | Oportunidades BTC→USDT→ETH→BTC detectadas |
-| **PnL Chart** | Gráfico histórico de ganancias/pérdidas acumuladas |
-| **Wallets** | Balance USDT y BTC por exchange + delta vs balance inicial |
+| **Circuit Breaker** | Pérdidas consecutivas, barra vs umbral real (`maxLossesBeforeOpen`), reapertura |
+| **Oportunidades** | Máx. 15 observadas (upsert por par) + 15 detectadas/ejecutadas; modal de detalle |
+| **Detalle de Oportunidad** | Modal: fees, slippage, spread, motivo de decisión |
+| **Arbitraje Triangular** | Badge propio; no se suma al contador de ejecutables del header |
+| **PnL Chart** | Curva en vivo desde trades SignalR; color verde/rojo según signo |
+| **Wallets** | Balance USDT/BTC + Δ vs 50k USDT / 0.5 BTC inicial por exchange |
 | **Trades** | Historial de las últimas 100 operaciones simuladas |
 
 ---
@@ -436,10 +442,11 @@ Toda la configuración vive en `dotnetcore-cryptoarbitrage/ArbitrageBot.API/apps
 
 ```json
 "Arbitrage": {
-  "MaxVolumeBtc": 0.1,       // Máximo BTC por operación (gestión de riesgo)
-  "MinReturnPct": 0.002,     // Retorno mínimo para ejecutar: 0.2%
-  "SlippagePct": 0.0005,     // Slippage estimado: 0.05%
-  "NetworkLatencyMs": 150    // Latencia de red estimada (informativo)
+  "MaxVolumeBtc": 0.1,                 // Máximo BTC por operación (gestión de riesgo)
+  "MinReturnPct": 0.002,               // Retorno mínimo para ejecutar: 0.2%
+  "SlippagePct": 0.0005,               // Slippage estimado: 0.05%
+  "NetworkLatencyMs": 150,             // Latencia simulada (ms): costo en fórmula + delay en ejecución
+  "LatencyRiskPctPerSecond": 0.001     // Costo de oportunidad por segundo de latencia (0.1%/s)
 }
 ```
 
@@ -447,9 +454,9 @@ Toda la configuración vive en `dotnetcore-cryptoarbitrage/ArbitrageBot.API/apps
 
 ```json
 "CircuitBreaker": {
-  "WindowSize": 5,            // Ventana de evaluación: últimos N trades
-  "MaxLossesBeforeOpen": 3,  // Abrir si >= 3 de 5 son pérdidas
-  "CooldownSeconds": 30      // Tiempo de pausa antes de reanudar
+  "WindowSize": 5,              // Legacy en config; la apertura usa racha consecutiva
+  "MaxLossesBeforeOpen": 3,     // Abrir tras 3 pérdidas CONSECUTIVAS en trades ejecutados
+  "CooldownSeconds": 30         // Pausa antes de reanudar detección
 }
 ```
 
@@ -547,6 +554,7 @@ GET /api/opportunities?limit=100
 | `detected` | Spread positivo y retorno > 0.2% → ejecutable |
 | `observed` | Spread positivo pero retorno insuficiente |
 | `executed` | Trade simulado completado |
+| `executed_partial` | Ejecutado con volumen limitado por liquidez del book |
 | `skipped` | Descartada (fondos insuficientes, circuito abierto, etc.) |
 
 ### Trades ejecutados
@@ -574,6 +582,21 @@ GET /api/status/connections      ← Estado de feeds WebSocket
 GET /api/status/circuit-breaker  ← Estado del circuit breaker
 ```
 
+Respuesta de `circuit-breaker`:
+
+```json
+{
+  "isOpen": false,
+  "openedAt": null,
+  "openUntil": null,
+  "lossCountInWindow": 1,
+  "recentTradesCount": 1,
+  "maxLossesBeforeOpen": 3
+}
+```
+
+`lossCountInWindow` = pérdidas **consecutivas** actuales (se resetea con un trade ganador).
+
 ### Swagger
 
 Documentación interactiva completa en: `http://localhost:5152/swagger`
@@ -596,6 +619,16 @@ Header: Authorization: Bearer <api-key>
 | `OpportunityFound` | `StoredOpportunity` | Oportunidad detectada u observada |
 | `TradeExecuted` | `TradeResult` | Trade simulado completado |
 | `TriangularOpportunity` | `TriangularOpportunity` | Oportunidad triangular BTC→USDT→ETH→BTC |
+
+### Frontend (`useSignalR`)
+
+1. Carga historial REST (`loadHistory`) **antes** de abrir SignalR (evita pisar estado live).
+2. Observadas: upsert por par, máx. 15; detectadas/ejecutadas: máx. 15 al frente.
+3. Tras reconexión, recarga historial REST.
+
+### Ejecución simulada y latencia
+
+Además del **costo de latencia en la fórmula**, `TradeExecutorService` espera `NetworkLatencyMs` (± variación) y **revalida** precios; si la oportunidad expiró → `price_moved` (sin afectar el circuit breaker).
 
 ### Ejemplo con JavaScript
 
@@ -626,21 +659,25 @@ await conn.start();
 
 ### Circuit Breaker
 
-El circuit breaker protege contra condiciones de mercado adversas o errores sistemáticos:
+El circuit breaker protege contra rachas de pérdidas en trades **realmente ejecutados**:
 
 ```
-Estado CERRADO (normal) → monitorea resultados de trades
+Estado CERRADO (normal)
       │
-      │  Si >= 3 pérdidas en los últimos 5 trades
+      │  Cada trade executed / executed_partial con pérdida → racha++
+      │  Un trade ganador → racha = 0
+      │  Si racha >= MaxLossesBeforeOpen (default 3)
       ▼
-Estado ABIERTO → pausa toda detección y ejecución por 30 segundos
+Estado ABIERTO → pausa detección ~30 s (CooldownSeconds)
       │
       │  Al expirar el cooldown
       ▼
 Estado CERRADO (reanuda automáticamente)
 ```
 
-La barra de riesgo en el dashboard muestra el nivel actual (verde → amarillo → rojo).
+**No cuenta** como pérdida: `circuit_open`, `stale_prices`, `price_moved`, `insufficient_funds` (no son ejecuciones completadas).
+
+La barra del dashboard usa `lossCountInWindow / maxLossesBeforeOpen` desde la API.
 
 ### Órdenes parciales
 
@@ -649,14 +686,22 @@ El volumen de cada trade se limita al **mínimo de**:
 - Volumen disponible en el bid del exchange de venta
 - `MaxVolumeBtc` configurado (0.1 BTC por defecto)
 
-Esto evita ejecutar más de lo que el mercado puede absorber.
+Si la liquidez del book es menor que el cap → status `executed_partial`.
+
+### Wallets alineados con PnL
+
+`WalletManager.TryExecuteArbitrage` debita del exchange de compra:
+
+`buyCostUsdt + withdrawalFeeUsdt + latencyCostUsdt`
+
+y acredita en el de venta los `sellProceedsUsdt`. El cambio neto en USDT del sistema equivale al `netProfit` del `ProfitCalculator`.
 
 ### Verificación de fondos
 
 Antes de cada ejecución simulada:
-1. ¿Hay suficiente USDT en el exchange de compra?
+1. ¿Hay suficiente USDT en el exchange de compra (incl. fees y latencia)?
 2. ¿Hay suficiente BTC en el exchange de venta?
-3. Si no → trade marcado como `skipped` con razón `insufficient_balance`
+3. Si no → trade con status `insufficient_funds` (no afecta la racha del circuit breaker)
 
 ---
 
@@ -689,8 +734,8 @@ Tests incluidos:
 
 | Suite | Qué verifica |
 |-------|-------------|
-| `CircuitBreakerTests` | Apertura por umbral de pérdidas, ventana deslizante, cooldown automático, estado en tiempo real |
-| `ProfitCalculatorTests` | Cálculo de fees, slippage, withdrawal fee, retorno neto, umbral de ejecución |
+| `CircuitBreakerTests` | Racha de pérdidas consecutivas, reset al profit, cooldown, `maxLossesBeforeOpen` en estado |
+| `ProfitCalculatorTests` | Fees, slippage, withdrawal, latencia implícita en evaluate, liquidez, umbral de ejecución |
 
 Para ver output detallado:
 
