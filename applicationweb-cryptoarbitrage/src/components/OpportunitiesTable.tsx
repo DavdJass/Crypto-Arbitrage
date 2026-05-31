@@ -25,7 +25,7 @@ export function OpportunitiesTable({
   return (
     <div>
       <div className="section-header">
-        <h2>🎯 Oportunidades <span>({ops.length})</span></h2>
+        <h2>🎯 Oportunidades <span>(últimas {Math.min(ops.length, 30)})</span></h2>
         <button onClick={onClear} className="btn-sm">Limpiar</button>
       </div>
 
@@ -45,7 +45,7 @@ export function OpportunitiesTable({
             </tr>
           </thead>
           <tbody>
-            {ops.slice(0, 50).map((op) => {
+            {ops.slice(0, 30).map((op) => {
               const sb = statusBadge[op.status] ?? { label: op.status, cls: 'badge-dim' };
               const spread = op.bidPrice - op.askPrice;
               const spreadPct = op.askPrice > 0 ? (spread / op.askPrice) * 100 : 0;

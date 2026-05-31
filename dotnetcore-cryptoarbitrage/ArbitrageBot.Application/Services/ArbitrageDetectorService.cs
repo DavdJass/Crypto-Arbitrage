@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 using ArbitrageBot.Domain.Interfaces;
 using ArbitrageBot.Domain.Models;
@@ -10,11 +11,21 @@ namespace ArbitrageBot.Application.Services;
 
 /// <summary>
 /// BackgroundService que lee del Channel&lt;OrderBook&gt; y evalúa todas las
-/// combinaciones N×N de exchanges. Las oportunidades detectadas se priorizan
-/// por NetProfit descendente. Emite vía Channel y SignalR (fire-and-forget).
+/// combinaciones N×N de exchanges.
+///
+/// Throttling por par:
+///   - "detected" (ejecutable): emite inmediato, sin cooldown.
+///   - "observed"  (spread positivo pero bajo umbral): emite como máximo
+///     una vez cada ObservedThrottleSeconds por par, para no saturar SignalR.
+///
+/// Además, en cada ciclo sólo se persiste el top-K por spread para no
+/// llenar el repositorio con miles de entradas "observed" idénticas.
 /// </summary>
 public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
 {
+    private const int ObservedThrottleSeconds = 5;
+    private const int MaxObservedPerCycle = 5; // sólo los mejores "observed" se emiten
+
     private readonly IOrderBookAggregator _cache;
     private readonly ProfitCalculator _calculator;
     private readonly CircuitBreaker _circuitBreaker;
@@ -22,6 +33,9 @@ public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
     private readonly IHubContext<ArbitrageHub> _hubContext;
     private readonly ILogger<ArbitrageDetectorService> _logger;
     private readonly Channel<ArbitrageOpportunity> _outputChannel;
+
+    // Rastrea cuándo se emitió por última vez cada par "observed"
+    private readonly ConcurrentDictionary<string, DateTime> _observedThrottle = new();
 
     public ArbitrageDetectorService(
         IOrderBookAggregator cache,
@@ -61,16 +75,29 @@ public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
                 var opportunities = EvaluateAllPairs(orderBook.ExchangeId);
                 opportunities.Sort((a, b) => b.NetProfit.CompareTo(a.NetProfit));
 
+                int observedEmitted = 0;
+
                 foreach (var opp in opportunities)
                 {
-                    if (!ProfitCalculator.HasPositiveSpread(opp))
-                        continue;
+                    if (!ProfitCalculator.HasPositiveSpread(opp)) continue;
 
-                    var status = _calculator.IsExecutable(opp) ? "detected" : "observed";
-                    var reason = status == "detected"
-                        ? "Elegible para simulación"
-                        : "Spread positivo bajo umbral de ejecución";
+                    var isExecutable = _calculator.IsExecutable(opp);
+                    var pairKey = $"{opp.BuyExchange}→{opp.SellExchange}";
 
+                    // Throttle para "observed": máx 1 emisión por par cada N segundos
+                    if (!isExecutable)
+                    {
+                        if (observedEmitted >= MaxObservedPerCycle) continue;
+
+                        if (_observedThrottle.TryGetValue(pairKey, out var lastEmit) &&
+                            (DateTime.UtcNow - lastEmit).TotalSeconds < ObservedThrottleSeconds)
+                            continue;
+
+                        _observedThrottle[pairKey] = DateTime.UtcNow;
+                        observedEmitted++;
+                    }
+
+                    var status = isExecutable ? "detected" : "observed";
                     var stored = new StoredOpportunity(
                         Guid.NewGuid(),
                         opp.BuyExchange,
@@ -81,14 +108,11 @@ public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
                         opp.NetProfit,
                         opp.ReturnPct,
                         status,
-                        reason,
+                        isExecutable ? null : "spread_bajo_umbral",
                         opp.DetectedAt);
 
                     await _opportunityRepository.SaveAsync(stored, stoppingToken);
 
-                    // Emitir todas las oportunidades con spread positivo vía SignalR
-                    // (ejecutables y observadas), enviando el StoredOpportunity completo
-                    // para que el frontend pueda mostrar el badge de estado correcto.
                     _ = Task.Run(async () =>
                     {
                         try
@@ -98,18 +122,16 @@ public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "Error SignalR OpportunityFound");
+                            _logger.LogWarning(ex, "Error SignalR OpportunityFound [{Pair}]", pairKey);
                         }
                     }, stoppingToken);
 
-                    if (_calculator.IsExecutable(opp))
+                    if (isExecutable)
                     {
                         await _outputChannel.Writer.WriteAsync(opp, stoppingToken);
-
                         _logger.LogInformation(
-                            "[OPORTUNIDAD ✓] Buy={Buy}@{Ask:F2} → Sell={Sell}@{Bid:F2} | Net={Net:F3} | Ret={Ret:P2}",
-                            opp.BuyExchange, opp.AskPrice, opp.SellExchange, opp.BidPrice,
-                            opp.NetProfit, opp.ReturnPct);
+                            "[OPORTUNIDAD ✓] {Pair} | Net={Net:F3} | Ret={Ret:P2}",
+                            pairKey, opp.NetProfit, opp.ReturnPct);
                     }
                 }
             }

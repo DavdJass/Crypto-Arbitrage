@@ -52,7 +52,25 @@ export function useSignalR() {
     });
 
     conn.on('OpportunityFound', (data: StoredOpportunity) => {
-      setOpportunities(prev => [data, ...prev].slice(0, 200));
+      setOpportunities(prev => {
+        if (data.status === 'observed') {
+          // Upsert: reemplaza si ya existe ese par, si no lo agrega.
+          // Después ordena por spread desc y muestra solo los mejores 15.
+          const others = prev.filter(
+            o => !(o.status === 'observed' &&
+                   o.buyExchange === data.buyExchange &&
+                   o.sellExchange === data.sellExchange)
+          );
+          const updatedObserved = [...others.filter(o => o.status === 'observed'), data]
+            .sort((a, b) => (b.bidPrice - b.askPrice) - (a.bidPrice - a.askPrice))
+            .slice(0, 15);
+          return [...prev.filter(o => o.status !== 'observed'), ...updatedObserved];
+        }
+        // "detected" / "executed": evento nuevo al principio, máx 15
+        return [data, ...prev.filter(o => o.status !== 'observed')]
+          .slice(0, 15)
+          .concat(prev.filter(o => o.status === 'observed'));
+      });
     });
 
     conn.on('TradeExecuted', (data: TradeResult) => {
