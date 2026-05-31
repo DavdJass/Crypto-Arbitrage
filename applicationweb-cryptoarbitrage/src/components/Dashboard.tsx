@@ -22,22 +22,27 @@ export function Dashboard() {
   return (
     <div className="dashboard">
       <header>
-        <h1><span className="btc-icon">₿</span> Crypto Arbitrage Bot</h1>
+        <div className="brand-block">
+          <h1><span className="btc-icon">₿</span> Arbitrage</h1>
+          <p className="brand-subtitle">
+            <strong>10 exchanges</strong> · BTC/USDT · simulación en tiempo real
+          </p>
+        </div>
         <div className="header-controls">
           <ThemeToggle />
           {executableCount > 0 && (
-            <span className="badge badge-ok animate-pulse">
+            <span className="badge badge-ok">
               {executableCount} ejecutables
             </span>
           )}
           {triangularCount > 0 && (
-            <span className="badge badge-ok" style={{ background: 'rgba(240,185,11,.15)', color: 'var(--gold)' }}>
-              🔺 {triangularCount} triangular
+            <span className="badge badge-gold">
+              {triangularCount} triangular
             </span>
           )}
-          <span className={`badge ${connected ? 'badge-ok' : 'badge-err'}`}>
+          <span className={`badge ${connected ? 'badge-ok badge-live' : 'badge-err'}`}>
             <span className={`live-dot ${connected ? 'connected' : 'disconnected'}`} />
-            {connected ? 'EN VIVO' : 'DESCONECTADO'}
+            {connected ? 'En vivo' : 'Offline'}
           </span>
         </div>
       </header>
@@ -52,7 +57,7 @@ export function Dashboard() {
       {/* Order Books + Status */}
       <section>
         <div className="section-header">
-          <h2>📊 Order Books</h2>
+          <h2>Order Books</h2>
         </div>
         <div className="top-row">
           <div className="col-2">
@@ -74,7 +79,7 @@ export function Dashboard() {
       {triangularOpps.length > 0 && (
         <section>
           <div className="section-header">
-            <h2>🔺 Arbitraje Triangular <span>({triangularOpps.length})</span></h2>
+            <h2>Arbitraje triangular <span>({triangularOpps.length})</span></h2>
           </div>
           <div className="table-wrapper">
             <table>

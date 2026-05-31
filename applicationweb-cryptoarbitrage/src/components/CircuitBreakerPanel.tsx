@@ -24,7 +24,7 @@ export function CircuitBreakerPanel() {
     : 'var(--green)';
 
   return (
-    <div className="card" style={{
+    <div className={`card ${cb.isOpen ? 'card-danger' : ''}`} style={{
       borderTop: `3px solid ${cb.isOpen ? 'var(--red)' : 'var(--green)'}`
     }}>
       <h3>🛡️ Circuit Breaker</h3>

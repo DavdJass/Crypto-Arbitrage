@@ -16,11 +16,15 @@ function Kpi({
   value,
   sub,
   positive,
+  featured,
+  icon,
 }: {
   label: string;
   value: string;
   sub?: string;
   positive?: boolean;
+  featured?: boolean;
+  icon?: string;
 }) {
   const color =
     positive === undefined
@@ -30,7 +34,8 @@ function Kpi({
       : 'var(--red)';
 
   return (
-    <div className="hero-kpi">
+    <div className={`hero-kpi ${featured ? 'hero-kpi-primary' : ''}`}>
+      {icon && <div className="hero-kpi-icon">{icon}</div>}
       <div className="hero-kpi-label">{label}</div>
       <div className="hero-kpi-value" style={{ color }}>{value}</div>
       {sub && <div className="hero-kpi-sub">{sub}</div>}
@@ -69,18 +74,22 @@ export function HeroStats({ trades }: { trades: TradeResult[] }) {
   return (
     <div className="hero-stats">
       <Kpi
+        featured
+        icon="◆"
         label="PnL Total"
         value={formatPnl(pnl)}
-        sub={`${totalPct >= 0 ? '+' : ''}${totalPct.toFixed(4)}% sobre $${(TOTAL_INITIAL_CAPITAL_USDT / 1000).toFixed(0)}k`}
+        sub={`${totalPct >= 0 ? '+' : ''}${totalPct.toFixed(4)}% · capital $${(TOTAL_INITIAL_CAPITAL_USDT / 1000).toFixed(0)}k`}
         positive={pnl >= 0}
       />
       <Kpi
+        icon="◎"
         label="Win Rate"
         value={summary ? `${(summary.winRate * 100).toFixed(1)}%` : '—'}
-        sub={summary ? `${summary.winningTrades}/${summary.totalTrades} trades ganadores` : 'Sin trades aún'}
+        sub={summary ? `${summary.winningTrades} ganadores de ${summary.totalTrades}` : 'Sin trades aún'}
         positive={summary ? summary.winRate >= 0.5 : undefined}
       />
       <Kpi
+        icon="⇄"
         label="Último Trade"
         value={
           lastTrade
@@ -89,15 +98,16 @@ export function HeroStats({ trades }: { trades: TradeResult[] }) {
         }
         sub={
           lastTrade
-            ? `${lastTrade.buyExchange} → ${lastTrade.sellExchange} · ${(lastTrade.returnPct * 100).toFixed(3)}%`
+            ? `${lastTrade.buyExchange} → ${lastTrade.sellExchange}`
             : 'Esperando ejecución…'
         }
         positive={lastTrade ? lastTrade.netProfit >= 0 : undefined}
       />
       <Kpi
-        label="Tiempo de Sesión"
+        icon="⏱"
+        label="Sesión"
         value={`${hh}:${mm}:${ss}`}
-        sub={`${summary?.totalTrades ?? 0} trades ejecutados`}
+        sub={`${summary?.totalTrades ?? 0} trades simulados`}
       />
     </div>
   );

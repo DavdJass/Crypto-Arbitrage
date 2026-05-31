@@ -16,10 +16,11 @@ const exchangeMeta: Record<string, { color: string; cls: string }> = {
 
 type FlashDir = 'up' | 'down' | 'none';
 
-function formatAge(timestamp: string): string {
+function formatAge(timestamp: string): { label: string; stale: boolean } {
   const sec = Math.max(0, Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000));
-  if (sec < 60) return `${sec}s`;
-  return `${Math.floor(sec / 60)}m`;
+  const stale = sec > 8;
+  const label = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m`;
+  return { label, stale };
 }
 
 function useFlash(value: number): { flash: FlashDir; ref: RefObject<number | null> } {
@@ -69,15 +70,16 @@ export function OrderBookPanel({ books }: { books: Record<string, OrderBook> }) 
         const meta = exchangeMeta[id] || { color: '#666', cls: '' };
         const spread = book.bestAsk - book.bestBid;
         const spreadPct = book.bestBid ? (spread / book.bestBid) * 100 : 0;
+        const age = book.timestamp ? formatAge(book.timestamp) : null;
 
         return (
           <div key={id} className={`orderbook-card ${meta.cls}`} style={{ borderLeft: `3px solid ${meta.color}` }}>
             <div className="exchange-header">
               <span className="exchange-dot" style={{ background: meta.color }} />
               <span className="exchange-name" style={{ color: meta.color }}>{id}</span>
-              {book.timestamp && (
-                <span className="dim" style={{ marginLeft: 'auto', fontSize: 11 }}>
-                  {formatAge(book.timestamp)}
+              {age && (
+                <span className={`tick-age ${age.stale ? 'stale' : ''}`} style={{ marginLeft: 'auto' }}>
+                  {age.label}
                 </span>
               )}
             </div>
@@ -94,8 +96,8 @@ export function OrderBookPanel({ books }: { books: Record<string, OrderBook> }) 
 
             <div className="price-row">
               <span className="price-label">Spread</span>
-              <span className="price-value">
-                ${spread.toFixed(2)} <span className="dim">({spreadPct.toFixed(3)}%)</span>
+              <span className={`spread-chip ${spread <= 0 ? 'negative' : ''}`}>
+                ${spread.toFixed(2)} · {spreadPct.toFixed(3)}%
               </span>
             </div>
 

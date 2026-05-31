@@ -25,7 +25,7 @@ export function OpportunitiesTable({
   return (
     <div>
       <div className="section-header">
-        <h2>🎯 Oportunidades <span>(últimas {Math.min(ops.length, 30)})</span></h2>
+        <h2>Oportunidades <span>({Math.min(ops.length, 30)} en pantalla)</span></h2>
         <button onClick={onClear} className="btn-sm">Limpiar</button>
       </div>
 
@@ -34,8 +34,7 @@ export function OpportunitiesTable({
           <thead>
             <tr>
               <th>Estado</th>
-              <th>Compra</th>
-              <th>Vende</th>
+              <th>Ruta</th>
               <th>Ask</th>
               <th>Bid</th>
               <th>Spread</th>
@@ -51,11 +50,19 @@ export function OpportunitiesTable({
               const spreadPct = op.askPrice > 0 ? (spread / op.askPrice) * 100 : 0;
               const isExec = op.status === 'executed';
               const isDetectable = op.status === 'detected';
+              const isObserved = op.status === 'observed';
+              const rowClass = isExec
+                ? 'row-executable'
+                : isDetectable
+                ? 'row-detectable'
+                : isObserved
+                ? 'row-observed'
+                : '';
 
               return (
                 <tr
                   key={op.id}
-                  className={isExec ? 'row-executable' : isDetectable ? 'row-detectable' : ''}
+                  className={rowClass}
                   style={{ cursor: 'pointer' }}
                   onClick={() => setSelected(op)}
                   title="Clic para ver desglose"
@@ -65,13 +72,19 @@ export function OpportunitiesTable({
                       {sb.label}
                     </span>
                   </td>
-                  <td><span className="gold">{op.buyExchange}</span></td>
-                  <td><span className="gold">{op.sellExchange}</span></td>
+                  <td>
+                    <span className="exchange-pair">
+                      <span className="gold">{op.buyExchange}</span>
+                      <span className="exchange-pair-arrow">→</span>
+                      <span className="gold">{op.sellExchange}</span>
+                    </span>
+                  </td>
                   <td className="mono red">${op.askPrice.toFixed(2)}</td>
                   <td className="mono green">${op.bidPrice.toFixed(2)}</td>
-                  <td className={`mono ${spread > 0 ? 'green' : 'red'}`}>
-                    ${spread.toFixed(2)}
-                    <span className="dim"> ({spreadPct.toFixed(3)}%)</span>
+                  <td>
+                    <span className={`spread-chip ${spread <= 0 ? 'negative' : ''}`}>
+                      ${spread.toFixed(2)} · {spreadPct.toFixed(3)}%
+                    </span>
                   </td>
                   <td className="mono">{op.volume.toFixed(4)}</td>
                   <td className={`mono ${op.netProfit >= 0 ? 'green' : 'red'}`}>
@@ -86,7 +99,7 @@ export function OpportunitiesTable({
 
             {ops.length === 0 && (
               <tr>
-                <td colSpan={9} style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-dim)' }}>
+                <td colSpan={8} style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-dim)' }}>
                   Esperando datos del mercado…
                 </td>
               </tr>
