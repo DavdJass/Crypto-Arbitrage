@@ -5,23 +5,35 @@ import { WalletPanel } from './WalletPanel';
 import { PnLChart } from './PnLChart';
 import { CircuitBreakerPanel } from './CircuitBreakerPanel';
 import { ConnectionHealth } from './ConnectionHealth';
+import { TradeToast } from './TradeToast';
 import { useSignalR } from '../hooks/useSignalR';
 
 export function Dashboard() {
-  const { connected, orderBooks, opportunities, trades, clearOpportunities } =
+  const { connected, orderBooks, opportunities, trades, triangularOpps, clearOpportunities } =
     useSignalR();
 
+  // Mismo umbral que back-end (MinReturnPct = 0.002 = 0.2%)
   const executableCount = opportunities.filter(
     (o) => o.netProfit > 0 && o.returnPct > 0.002 && o.bidPrice > o.askPrice
   ).length;
+
+  const triangularCount = triangularOpps.length;
+  const totalLive = executableCount + triangularCount;
 
   return (
     <div className="dashboard">
       <header>
         <h1><span className="btc-icon">₿</span> Crypto Arbitrage Bot</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          {executableCount > 0 && (
-            <span className="badge badge-ok">{executableCount} ejecutables</span>
+          {totalLive > 0 && (
+            <span className="badge badge-ok animate-pulse">
+              {totalLive} oportunidades
+            </span>
+          )}
+          {triangularCount > 0 && (
+            <span className="badge badge-ok" style={{ background: 'rgba(240,185,11,.15)', color: 'var(--gold)' }}>
+              🔺 {triangularCount} triangular
+            </span>
           )}
           <span className={`badge ${connected ? 'badge-ok' : 'badge-err'}`}>
             <span className={`live-dot ${connected ? 'connected' : 'disconnected'}`} />
@@ -29,6 +41,9 @@ export function Dashboard() {
           </span>
         </div>
       </header>
+
+      {/* Toast notification en trades rentables */}
+      <TradeToast trades={trades} />
 
       {/* Top row: Order Books + Status */}
       <section>
@@ -51,6 +66,41 @@ export function Dashboard() {
         <OpportunitiesTable ops={opportunities} onClear={clearOpportunities} />
       </section>
 
+      {/* Triangular Arbitrage */}
+      {triangularOpps.length > 0 && (
+        <section>
+          <div className="section-header">
+            <h2>🔺 Arbitraje Triangular <span>({triangularOpps.length})</span></h2>
+          </div>
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Exchange</th>
+                  <th>Ruta</th>
+                  <th>BTC Inicial</th>
+                  <th>BTC Final</th>
+                  <th>Profit BTC</th>
+                  <th>Retorno</th>
+                </tr>
+              </thead>
+              <tbody>
+                {triangularOpps.map((op, i) => (
+                  <tr key={i} className="row-executable" style={{ borderLeft: '3px solid var(--gold)' }}>
+                    <td><span className="gold">{op.exchangeId}</span></td>
+                    <td className="mono dim">{op.path}</td>
+                    <td className="mono">{op.startAmountBtc.toFixed(6)}</td>
+                    <td className="mono green">{op.endAmountBtc.toFixed(6)}</td>
+                    <td className="mono green">+{op.netProfitBtc.toFixed(8)}</td>
+                    <td className="mono green">{(op.returnPct * 100).toFixed(4)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {/* PnL + Wallets */}
       <section>
         <div className="mid-row">
@@ -69,7 +119,7 @@ export function Dashboard() {
       </section>
 
       <footer style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-dim)', fontSize: 12, borderTop: '1px solid var(--border)' }}>
-        Crypto Arbitrage Bot v1.0 — Datos en vivo de Binance, Kraken y Bybit
+        Crypto Arbitrage Bot v1.0 — Datos en vivo de 10 exchanges: Binance, Kraken, Bybit, Coinbase, OKX, Bitfinex, KuCoin, Gate.io, Bitstamp, Gemini
       </footer>
     </div>
   );

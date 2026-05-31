@@ -4,6 +4,7 @@ import type {
   OrderBook,
   ArbitrageOpportunity,
   TradeResult,
+  TriangularOpportunity,
 } from '../types';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'dev-key';
@@ -13,6 +14,7 @@ export function useSignalR() {
   const [orderBooks, setOrderBooks] = useState<Record<string, OrderBook>>({});
   const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([]);
   const [trades, setTrades] = useState<TradeResult[]>([]);
+  const [triangularOpps, setTriangularOpps] = useState<TriangularOpportunity[]>([]);
   const connectionRef = useRef<signalR.HubConnection | null>(null);
 
   const connect = useCallback(async () => {
@@ -37,6 +39,13 @@ export function useSignalR() {
 
     conn.on('TradeExecuted', (data: TradeResult) => {
       setTrades(prev => [data, ...prev]);
+    });
+
+    conn.on('TriangularOpportunity', (data: TriangularOpportunity) => {
+      setTriangularOpps(prev => {
+        const updated = [data, ...prev];
+        return updated.slice(0, 25);
+      });
     });
 
     conn.onreconnecting(() => setConnected(false));
@@ -69,6 +78,7 @@ export function useSignalR() {
     orderBooks,
     opportunities,
     trades,
+    triangularOpps,
     clearOpportunities,
   };
 }

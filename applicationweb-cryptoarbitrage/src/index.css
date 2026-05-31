@@ -62,3 +62,6 @@ tr:hover td{background:var(--surface2)}
 .live-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;animation:pulse 2s infinite}
 .live-dot.connected{background:var(--green);box-shadow:0 0 8px var(--green)}
 .live-dot.disconnected{background:var(--red)}
+@keyframes slideInRight{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes fadeOut{from{opacity:1}to{opacity:0;transform:translateY(-10px)}}
+.animate-pulse{animation:pulse 2s infinite}

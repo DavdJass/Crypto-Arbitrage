@@ -23,20 +23,27 @@ public class SqliteTradeRepository : ITradeRepository
     public async Task SaveAsync(TradeResult t,CancellationToken ct)
     {
         using var c = new SqliteConnection(_connStr);
-        await c.ExecuteAsync("INSERT OR IGNORE INTO trades VALUES(@Id,@BuyExchange,@SellExchange,@Volume,@NetProfit,@ReturnPct,@IsProfit,@Status,@ExecutedAt)",t);
+        await c.ExecuteAsync(@"
+            INSERT OR IGNORE INTO trades(id,buy_exchange,sell_exchange,volume,net_profit,return_pct,is_profit,status,executed_at)
+            VALUES(@Id,@BuyExchange,@SellExchange,@Volume,@NetProfit,@ReturnPct,@IsProfit,@Status,@ExecutedAt)",t);
     }
 
     public async Task<IReadOnlyList<TradeResult>> GetRecentAsync(int limit,CancellationToken ct)
     {
         using var c = new SqliteConnection(_connStr);
-        var r = await c.QueryAsync<TradeResult>("SELECT * FROM trades ORDER BY executed_at DESC LIMIT @Limit",new{Limit=limit});
+        var r = await c.QueryAsync<TradeResult>(@"
+            SELECT id AS Id, buy_exchange AS BuyExchange, sell_exchange AS SellExchange,
+                   volume AS Volume, net_profit AS NetProfit, return_pct AS ReturnPct,
+                   is_profit AS IsProfit, status AS Status, executed_at AS ExecutedAt
+            FROM trades ORDER BY executed_at DESC LIMIT @Limit",new{Limit=limit});
         return r.AsList();
     }
 
     public async Task<(decimal totalPnl,int totalTrades,int winningTrades)> GetSummaryAsync(CancellationToken ct)
     {
         using var c = new SqliteConnection(_connStr);
-        var r = await c.QuerySingleAsync("SELECT COALESCE(SUM(net_profit),0) TotalPnl,COUNT(*) TotalTrades,COALESCE(SUM(is_profit),0) WinningTrades FROM trades");
+        var r = await c.QuerySingleAsync(@"
+            SELECT COALESCE(SUM(net_profit),0) TotalPnl,COUNT(*) TotalTrades,COALESCE(SUM(is_profit),0) WinningTrades FROM trades");
         return ((decimal)r.TotalPnl,(int)r.TotalTrades,(int)r.WinningTrades);
     }
 }
