@@ -6,6 +6,7 @@ import { PnLChart } from './PnLChart';
 import { CircuitBreakerPanel } from './CircuitBreakerPanel';
 import { ConnectionHealth } from './ConnectionHealth';
 import { TradeToast } from './TradeToast';
+import { ThemeToggle } from './ThemeToggle';
 import { useSignalR } from '../hooks/useSignalR';
 
 export function Dashboard() {
@@ -24,7 +25,8 @@ export function Dashboard() {
     <div className="dashboard">
       <header>
         <h1><span className="btc-icon">₿</span> Crypto Arbitrage Bot</h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div className="header-controls">
+          <ThemeToggle />
           {totalLive > 0 && (
             <span className="badge badge-ok animate-pulse">
               {totalLive} oportunidades
