@@ -34,11 +34,14 @@ public static class DependencyInjection
 
         services.AddSingleton<IOrderBookAggregator, MemoryOrderBookCache>();
 
-        // Persistencia: SQLite como base local, Postgres como opción production
-        var dbPath = sqliteDbPath ?? Path.Combine(Directory.GetCurrentDirectory(), "arbitrage.db");
-        services.AddSingleton(sp =>
-            new SqliteTradeRepository(dbPath, sp.GetRequiredService<ILogger<SqliteTradeRepository>>()));
-        services.AddSingleton<ITradeRepository>(sp => sp.GetRequiredService<SqliteTradeRepository>());
+        // Persistencia: en memoria (rapido, sin dependencias externas)
+        services.AddSingleton<ITradeRepository, InMemoryTradeRepository>();
+
+        // Para usar SQLite en produccion, descomentar:
+        // var dbPath = sqliteDbPath ?? Path.Combine(Directory.GetCurrentDirectory(), "arbitrage.db");
+        // services.AddSingleton(sp =>
+        //     new SqliteTradeRepository(dbPath, sp.GetRequiredService<ILogger<SqliteTradeRepository>>()));
+        // services.AddSingleton<ITradeRepository>(sp => sp.GetRequiredService<SqliteTradeRepository>());
 
         return services;
     }
