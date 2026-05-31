@@ -14,7 +14,6 @@ public class CircuitBreaker
     private readonly CircuitBreakerOptions _options;
     private readonly LinkedList<bool> _recentResults = new(); // true = ganancia, false = pérdida
     private DateTime? _openUntil;
-    private int _consecutiveLosses;
     private readonly object _lock = new();
 
     public CircuitBreaker(IOptions<CircuitBreakerOptions> options)
@@ -33,7 +32,6 @@ public class CircuitBreaker
                 if (DateTime.UtcNow >= _openUntil.Value)
                 {
                     _openUntil = null;
-                    _consecutiveLosses = 0;
                     return false;
                 }
                 return true;
@@ -51,7 +49,6 @@ public class CircuitBreaker
                 _recentResults.RemoveFirst();
 
             var losses = _recentResults.Count(r => !r);
-            _consecutiveLosses = losses;
 
             if (_recentResults.Count >= _options.WindowSize
                 && losses >= _options.MaxLossesBeforeOpen)
@@ -65,11 +62,20 @@ public class CircuitBreaker
     {
         lock (_lock)
         {
+            var now = DateTime.UtcNow;
+            var isExpired = _openUntil is not null && now >= _openUntil.Value;
+
+            // Alinear estado expirado igual que el getter IsOpen
+            if (isExpired) _openUntil = null;
+
+            var isOpen = _openUntil is not null;
+            var losses = _recentResults.Count(r => !r);
+
             return new CircuitBreakerState(
-                IsOpen: _openUntil is not null && DateTime.UtcNow < _openUntil,
+                IsOpen: isOpen,
                 OpenedAt: _openUntil?.AddSeconds(-_options.CooldownSeconds),
-                ClosedAt: _openUntil,
-                ConsecutiveLosses: _consecutiveLosses,
+                OpenUntil: _openUntil,
+                LossCountInWindow: losses,
                 RecentTradesCount: _recentResults.Count
             );
         }

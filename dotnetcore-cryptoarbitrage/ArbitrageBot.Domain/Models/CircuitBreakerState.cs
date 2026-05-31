@@ -6,7 +6,7 @@ namespace ArbitrageBot.Domain.Models;
 public record CircuitBreakerState(
     bool IsOpen,
     DateTime? OpenedAt,
-    DateTime? ClosedAt,
-    int ConsecutiveLosses,
+    DateTime? OpenUntil,
+    int LossCountInWindow,
     int RecentTradesCount
 );

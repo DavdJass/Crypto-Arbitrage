@@ -6,6 +6,7 @@ using ArbitrageBot.Infrastructure;
 using ArbitrageBot.Domain.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddEnvironmentVariables();
 
 // ─── Opciones ───────────────────────────────────────────────
 builder.Services.Configure<ExchangeOptions>(builder.Configuration.GetSection(ExchangeOptions.SectionName));
@@ -21,7 +22,8 @@ var sqlitePath = Environment.GetEnvironmentVariable("SQLITE_PATH") ?? "arbitrage
 
 builder.Services.AddInfrastructureServices(connectionString, sqlitePath);
 builder.Services.AddApplicationServices();
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase);
 
 // ─── Swagger ────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();

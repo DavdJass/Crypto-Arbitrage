@@ -18,6 +18,19 @@ export interface ArbitrageOpportunity {
   returnPct: number;
   detectedAt: string;
 }
+export interface StoredOpportunity {
+  id: string;
+  buyExchange: string;
+  sellExchange: string;
+  askPrice: number;
+  bidPrice: number;
+  volume: number;
+  netProfit: number;
+  returnPct: number;
+  status: string;
+  reason?: string | null;
+  detectedAt: string;
+}
 export interface TriangularOpportunity {
   exchangeId: string;
   path: string;
@@ -53,8 +66,8 @@ export interface TradeSummary {
 export interface CircuitBreakerState {
   isOpen: boolean;
   openedAt: string | null;
-  closedAt: string | null;
-  consecutiveLosses: number;
+  openUntil: string | null;
+  lossCountInWindow: number;
   recentTradesCount: number;
 }
 export interface FeedStatus {

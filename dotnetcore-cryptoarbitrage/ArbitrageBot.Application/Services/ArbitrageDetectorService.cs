@@ -18,6 +18,7 @@ public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
     private readonly IOrderBookAggregator _cache;
     private readonly ProfitCalculator _calculator;
     private readonly CircuitBreaker _circuitBreaker;
+    private readonly IOpportunityRepository _opportunityRepository;
     private readonly IHubContext<ArbitrageHub> _hubContext;
     private readonly ILogger<ArbitrageDetectorService> _logger;
     private readonly Channel<ArbitrageOpportunity> _outputChannel;
@@ -26,12 +27,14 @@ public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
         IOrderBookAggregator cache,
         ProfitCalculator calculator,
         CircuitBreaker circuitBreaker,
+        IOpportunityRepository opportunityRepository,
         IHubContext<ArbitrageHub> hubContext,
         ILogger<ArbitrageDetectorService> logger)
     {
         _cache = cache;
         _calculator = calculator;
         _circuitBreaker = circuitBreaker;
+        _opportunityRepository = opportunityRepository;
         _hubContext = hubContext;
         _logger = logger;
         _outputChannel = Channel.CreateUnbounded<ArbitrageOpportunity>(
@@ -56,22 +59,42 @@ public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
                 }
 
                 var opportunities = EvaluateAllPairs(orderBook.ExchangeId);
-
-                // ─── Priorizar por NetProfit descendente ─────────────────
                 opportunities.Sort((a, b) => b.NetProfit.CompareTo(a.NetProfit));
 
                 foreach (var opp in opportunities)
                 {
-                    // Emitir al pipeline (Channel) — la mejor primero
-                    await _outputChannel.Writer.WriteAsync(opp, stoppingToken);
+                    if (!ProfitCalculator.HasPositiveSpread(opp))
+                        continue;
 
-                    // Push a SignalR — FIRE AND FORGET (no bloquea el pipeline)
+                    var status = _calculator.IsExecutable(opp) ? "detected" : "observed";
+                    var reason = status == "detected"
+                        ? "Elegible para simulación"
+                        : "Spread positivo bajo umbral de ejecución";
+
+                    var stored = new StoredOpportunity(
+                        Guid.NewGuid(),
+                        opp.BuyExchange,
+                        opp.SellExchange,
+                        opp.AskPrice,
+                        opp.BidPrice,
+                        opp.Volume,
+                        opp.NetProfit,
+                        opp.ReturnPct,
+                        status,
+                        reason,
+                        opp.DetectedAt);
+
+                    await _opportunityRepository.SaveAsync(stored, stoppingToken);
+
+                    // Emitir todas las oportunidades con spread positivo vía SignalR
+                    // (ejecutables y observadas), enviando el StoredOpportunity completo
+                    // para que el frontend pueda mostrar el badge de estado correcto.
                     _ = Task.Run(async () =>
                     {
                         try
                         {
                             await _hubContext.Clients.All
-                                .SendAsync("OpportunityFound", opp, stoppingToken);
+                                .SendAsync("OpportunityFound", stored, stoppingToken);
                         }
                         catch (Exception ex)
                         {
@@ -81,6 +104,8 @@ public class ArbitrageDetectorService : BackgroundService, IArbitrageDetector
 
                     if (_calculator.IsExecutable(opp))
                     {
+                        await _outputChannel.Writer.WriteAsync(opp, stoppingToken);
+
                         _logger.LogInformation(
                             "[OPORTUNIDAD ✓] Buy={Buy}@{Ask:F2} → Sell={Sell}@{Bid:F2} | Net={Net:F3} | Ret={Ret:P2}",
                             opp.BuyExchange, opp.AskPrice, opp.SellExchange, opp.BidPrice,

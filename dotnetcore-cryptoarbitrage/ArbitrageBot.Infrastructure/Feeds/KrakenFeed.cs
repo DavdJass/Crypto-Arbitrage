@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net.WebSockets;
 using System.Text;
 using ArbitrageBot.Domain.Interfaces;
@@ -191,14 +192,14 @@ public class KrakenFeed : IExchangeFeed, IDisposable
     private OrderBook? ParseRestOrderBook(string raw)
     {
         var json = JObject.Parse(raw);
-        var result = json["result"];
-        if (result is null) return null;
+        var result = json["result"] as JObject;
+        if (result is null || !result.Properties().Any()) return null;
 
-        var xbtUsd = result["XBTUSD"];
-        if (xbtUsd is null) return null;
+        var pairData = result.Properties().First().Value;
+        if (pairData is null) return null;
 
-        var asks = xbtUsd["asks"] as JArray;
-        var bids = xbtUsd["bids"] as JArray;
+        var asks = pairData["asks"] as JArray;
+        var bids = pairData["bids"] as JArray;
 
         if (asks is null || bids is null || asks.Count == 0 || bids.Count == 0)
             return null;

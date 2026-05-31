@@ -91,9 +91,9 @@ public class CircuitBreakerTests
 
         var state = cb.GetState();
         Assert.True(state.IsOpen);
-        Assert.Equal(3, state.ConsecutiveLosses);
+        Assert.Equal(3, state.LossCountInWindow);
         Assert.Equal(5, state.RecentTradesCount);
         Assert.NotNull(state.OpenedAt);
-        Assert.NotNull(state.ClosedAt);
+        Assert.NotNull(state.OpenUntil);
     }
 }

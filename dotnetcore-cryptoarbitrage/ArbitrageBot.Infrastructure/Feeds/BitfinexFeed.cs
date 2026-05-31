@@ -21,6 +21,7 @@ public sealed class BitfinexFeed : IExchangeFeed, IDisposable
     private readonly FeedHealthTracker _health;
     private readonly string _wsUrl;
     private readonly string _restUrl;
+    private readonly string _symbol;
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
     private bool _disposed;
@@ -41,6 +42,7 @@ public sealed class BitfinexFeed : IExchangeFeed, IDisposable
         var cfg = options.Value.Exchanges["Bitfinex"];
         _wsUrl = cfg.WebSocketUrl;
         _restUrl = cfg.RestUrl;
+        _symbol = cfg.Symbol;
     }
 
     public async Task ConnectAsync(CancellationToken ct)
@@ -68,7 +70,7 @@ public sealed class BitfinexFeed : IExchangeFeed, IDisposable
                 await _ws.ConnectAsync(new Uri(_wsUrl), ct);
 
                 var subscribeMsg = Encoding.UTF8.GetBytes(
-                    "{\"event\":\"subscribe\",\"channel\":\"book\",\"symbol\":\"tBTCUSD\"," +
+                    $"{{\"event\":\"subscribe\",\"channel\":\"book\",\"symbol\":\"{_symbol}\"," +
                     "\"prec\":\"P0\",\"freq\":\"F0\",\"len\":\"1\"}");
                 await _ws.SendAsync(new ArraySegment<byte>(subscribeMsg),
                     WebSocketMessageType.Text, true, ct);

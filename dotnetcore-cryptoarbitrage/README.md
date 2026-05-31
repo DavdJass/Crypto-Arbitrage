@@ -1,6 +1,8 @@
 # 🚀 Crypto Arbitrage Bot
 
-Sistema de detección y simulación de **arbitraje de Bitcoin en tiempo real** entre múltiples exchanges (Binance, Kraken, Bybit). Desarrollado en **.NET 8** con arquitectura de 4 capas, WebSockets, SignalR y pipeline de alto rendimiento basado en `System.Threading.Channels`.
+Sistema de detección y simulación de **arbitraje de Bitcoin (BTC/USDT) en tiempo real** entre 10 exchanges. Desarrollado en **.NET 8** con arquitectura de 4 capas, WebSockets, SignalR y pipeline basado en `System.Threading.Channels`.
+
+Ver también el [README del monorepo](../README.md) para despliegue y variables de entorno.
 
 ---
 
@@ -73,6 +75,7 @@ WS Bybit   ──┘         │                          │
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | GET | `/api/orderbooks` | Order books en vivo de todos los exchanges |
+| GET | `/api/opportunities?limit=100` | Historial de oportunidades detectadas |
 | GET | `/api/trades?limit=50` | Últimos trades ejecutados |
 | GET | `/api/trades/summary` | PnL total, win rate, total trades |
 | GET | `/api/status/wallets` | Balances simulados por exchange |
@@ -137,19 +140,15 @@ Toda la configuración está en `ArbitrageBot.API/appsettings.json`:
 
 ---
 
-## 🗄️ PostgreSQL (opcional)
+## 🗄️ Persistencia (SQLite)
 
-Por defecto, los trades se almacenan en **memoria** (`InMemoryTradeRepository`). Para usar PostgreSQL:
+- Sin `SQLITE_PATH` → trades y oportunidades en **memoria** (desarrollo).
+- Con `SQLITE_PATH` (p. ej. `/data/arbitrage.db` en Docker/Railway) → **SQLite** para trades y oportunidades.
 
-1. Cambiar en `ArbitrageBot.Infrastructure/DependencyInjection.cs`:
-```csharp
-// Reemplazar:
-services.AddSingleton<ITradeRepository, InMemoryTradeRepository>();
-// Por:
-services.AddSingleton<ITradeRepository, TradeRepository>();
+```bash
+export SQLITE_PATH=/data/arbitrage.db
+dotnet run --project ArbitrageBot.API
 ```
-
-2. Configurar connection string en `appsettings.json`.
 
 ---
 
@@ -242,14 +241,14 @@ Cuando despliegues el frontend separado del backend, actualiza `vite.config.ts` 
 | Exchange | WebSocket | REST Fallback | Pares |
 |----------|-----------|---------------|-------|
 | Binance  | ✅ depth5 @100ms | ✅ | BTCUSDT |
-| Kraken   | ✅ book-10 | ✅ | XBT/USD |
+| Kraken   | ✅ book-10 | ✅ | XBT/USDT |
 | Bybit    | ✅ orderbook.1 | ✅ | BTCUSDT |
-| Coinbase | ✅ level2 | ✅ | BTC-USD |
+| Coinbase | ✅ level2 | ✅ | BTC-USDT |
 | OKX      | ✅ bbo-tbt | ✅ | BTC-USDT |
-| Bitfinex | ✅ book P0 | ✅ | tBTCUSD |
+| Bitfinex | ✅ book P0 | ✅ | tBTCUST |
 | KuCoin   | REST polling | ✅ | BTC-USDT |
 | Gate.io  | ✅ order_book | ✅ | BTC_USDT |
-| Bitstamp | ✅ order_book | ✅ | btcusd |
-| Gemini   | ✅ l2 | ✅ | BTCUSD |
+| Bitstamp | ✅ order_book | ✅ | btcusdt |
+| Gemini   | ✅ l2 | ✅ | BTCUSDT |
 
 > **Nota:** KuCoin requiere token dinamico para WS — se usa REST polling cada 1.5s.

@@ -74,4 +74,41 @@ public class WalletManager : IWalletManager
             return true;
         }
     }
+
+    /// <summary>
+    /// Ejecuta compra y venta usando el desglose de costos del ProfitCalculator.
+    /// </summary>
+    public bool TryExecuteArbitrage(
+        string buyExchange,
+        string sellExchange,
+        ExecutionSettlement settlement)
+    {
+        if (settlement.Volume <= 0)
+            return false;
+
+        lock (_lock)
+        {
+            if (!_wallets.TryGetValue(buyExchange, out var buyWallet) ||
+                !_wallets.TryGetValue(sellExchange, out var sellWallet))
+                return false;
+
+            if (buyWallet.UsdtBalance < settlement.BuyCostUsdt ||
+                sellWallet.BtcBalance < settlement.Volume)
+                return false;
+
+            _wallets[buyExchange] = buyWallet with
+            {
+                UsdtBalance = buyWallet.UsdtBalance - settlement.BuyCostUsdt,
+                BtcBalance = buyWallet.BtcBalance + settlement.Volume
+            };
+
+            _wallets[sellExchange] = sellWallet with
+            {
+                BtcBalance = sellWallet.BtcBalance - settlement.Volume,
+                UsdtBalance = sellWallet.UsdtBalance + settlement.SellProceedsUsdt
+            };
+
+            return true;
+        }
+    }
 }

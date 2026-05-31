@@ -29,7 +29,7 @@ public class StatusController : ControllerBase
     public IActionResult GetCircuitBreaker()
     {
         var s = _circuitBreaker.GetState();
-        return Ok(new { s.IsOpen, s.OpenedAt, s.ClosedAt, s.ConsecutiveLosses, s.RecentTradesCount });
+        return Ok(new { s.IsOpen, s.OpenedAt, s.OpenUntil, s.LossCountInWindow, s.RecentTradesCount });
     }
 
     [HttpGet("connections")]

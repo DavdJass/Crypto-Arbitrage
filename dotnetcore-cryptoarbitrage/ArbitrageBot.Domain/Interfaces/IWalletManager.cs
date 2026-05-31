@@ -12,4 +12,5 @@ public interface IWalletManager
     IReadOnlyDictionary<string, WalletBalance> GetAllBalances();
     bool TryExecuteBuy(string exchangeId, decimal usdtAmount, decimal btcAmount);
     bool TryExecuteSell(string exchangeId, decimal btcAmount, decimal usdtAmount);
+    bool TryExecuteArbitrage(string buyExchange, string sellExchange, ExecutionSettlement settlement);
 }

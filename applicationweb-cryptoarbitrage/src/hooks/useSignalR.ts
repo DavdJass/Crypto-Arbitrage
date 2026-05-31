@@ -1,25 +1,46 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
+import { arbitrageApi } from '../api/arbitrageApi';
 import type {
   OrderBook,
-  ArbitrageOpportunity,
+  StoredOpportunity,
   TradeResult,
   TriangularOpportunity,
 } from '../types';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'dev-key';
+const HUB_BASE = import.meta.env.VITE_BACKEND_URL || '';
 
 export function useSignalR() {
   const [connected, setConnected] = useState(false);
   const [orderBooks, setOrderBooks] = useState<Record<string, OrderBook>>({});
-  const [opportunities, setOpportunities] = useState<ArbitrageOpportunity[]>([]);
+  const [opportunities, setOpportunities] = useState<StoredOpportunity[]>([]);
   const [trades, setTrades] = useState<TradeResult[]>([]);
   const [triangularOpps, setTriangularOpps] = useState<TriangularOpportunity[]>([]);
   const connectionRef = useRef<signalR.HubConnection | null>(null);
 
+  const loadHistory = useCallback(async () => {
+    try {
+      const [storedOps, recentTrades, books] = await Promise.all([
+        arbitrageApi.getOpportunities(100),
+        arbitrageApi.getTrades(50),
+        arbitrageApi.getOrderBooks(),
+      ]);
+      setOpportunities(storedOps);
+      setTrades(recentTrades);
+      const bookMap: Record<string, OrderBook> = {};
+      for (const book of books) {
+        bookMap[book.exchangeId] = book;
+      }
+      setOrderBooks(bookMap);
+    } catch (err) {
+      console.warn('No se pudo cargar historial REST:', err);
+    }
+  }, []);
+
   const connect = useCallback(async () => {
     const conn = new signalR.HubConnectionBuilder()
-      .withUrl(`/hubs/arbitrage`, {
+      .withUrl(`${HUB_BASE}/hubs/arbitrage`, {
         accessTokenFactory: () => API_KEY,
       })
       .withAutomaticReconnect()
@@ -30,22 +51,26 @@ export function useSignalR() {
       setOrderBooks(prev => ({ ...prev, [data.exchangeId]: data }));
     });
 
-    conn.on('OpportunityFound', (data: ArbitrageOpportunity) => {
-      setOpportunities(prev => {
-        const updated = [data, ...prev];
-        return updated.slice(0, 50); // Mantener últimas 50
-      });
+    conn.on('OpportunityFound', (data: StoredOpportunity) => {
+      setOpportunities(prev => [data, ...prev].slice(0, 200));
     });
 
     conn.on('TradeExecuted', (data: TradeResult) => {
-      setTrades(prev => [data, ...prev]);
+      setTrades(prev => [data, ...prev].slice(0, 100));
+      // Mark the corresponding opportunity as executed
+      setOpportunities(prev =>
+        prev.map(op =>
+          op.buyExchange === data.buyExchange &&
+          op.sellExchange === data.sellExchange &&
+          op.status === 'detected'
+            ? { ...op, status: 'executed' }
+            : op
+        )
+      );
     });
 
     conn.on('TriangularOpportunity', (data: TriangularOpportunity) => {
-      setTriangularOpps(prev => {
-        const updated = [data, ...prev];
-        return updated.slice(0, 25);
-      });
+      setTriangularOpps(prev => [data, ...prev].slice(0, 25));
     });
 
     conn.onreconnecting(() => setConnected(false));
@@ -62,16 +87,14 @@ export function useSignalR() {
   }, []);
 
   useEffect(() => {
-    connect();
+    void loadHistory();
+    void connect();
     return () => {
       connectionRef.current?.stop();
     };
-  }, [connect]);
+  }, [connect, loadHistory]);
 
-  const clearOpportunities = useCallback(
-    () => setOpportunities([]),
-    []
-  );
+  const clearOpportunities = useCallback(() => setOpportunities([]), []);
 
   return {
     connected,

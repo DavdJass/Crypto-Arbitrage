@@ -1,6 +1,15 @@
-import type { OrderBook, TradeResult, TradeSummary, WalletBalance, FeedStatus, CircuitBreakerState } from '../types';
+import type {
+  OrderBook,
+  TradeResult,
+  TradeSummary,
+  WalletBalance,
+  FeedStatus,
+  CircuitBreakerState,
+  StoredOpportunity,
+} from '../types';
 
 const API_KEY = import.meta.env.VITE_API_KEY || 'dev-key';
+const API_BASE = import.meta.env.VITE_BACKEND_URL || '';
 
 const headers: Record<string, string> = {
   'Content-Type': 'application/json',
@@ -8,7 +17,7 @@ const headers: Record<string, string> = {
 };
 
 async function get<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers });
+  const res = await fetch(`${API_BASE}${url}`, { headers });
   if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
   return res.json();
 }
@@ -22,6 +31,9 @@ export const arbitrageApi = {
 
   getTradeSummary: (): Promise<TradeSummary> =>
     get<TradeSummary>('/api/trades/summary'),
+
+  getOpportunities: (limit = 100): Promise<StoredOpportunity[]> =>
+    get<StoredOpportunity[]>(`/api/opportunities?limit=${limit}`),
 
   getWallets: (): Promise<WalletBalance[]> =>
     get<WalletBalance[]>('/api/status/wallets'),

@@ -20,7 +20,6 @@ public static class DependencyInjection
             DefaultRequestHeaders = { { "User-Agent", "ArbitrageBot/1.0" } }
         });
 
-        // 10 feeds
         services.AddSingleton<IExchangeFeed, BinanceFeed>();
         services.AddSingleton<IExchangeFeed, KrakenFeed>();
         services.AddSingleton<IExchangeFeed, BybitFeed>();
@@ -34,14 +33,22 @@ public static class DependencyInjection
 
         services.AddSingleton<IOrderBookAggregator, MemoryOrderBookCache>();
 
-        // Persistencia: en memoria (rapido, sin dependencias externas)
-        services.AddSingleton<ITradeRepository, InMemoryTradeRepository>();
+        if (!string.IsNullOrWhiteSpace(sqliteDbPath))
+        {
+            var dbPath = sqliteDbPath;
+            services.AddSingleton(sp =>
+                new SqliteTradeRepository(dbPath, sp.GetRequiredService<ILogger<SqliteTradeRepository>>()));
+            services.AddSingleton<ITradeRepository>(sp => sp.GetRequiredService<SqliteTradeRepository>());
 
-        // Para usar SQLite en produccion, descomentar:
-        // var dbPath = sqliteDbPath ?? Path.Combine(Directory.GetCurrentDirectory(), "arbitrage.db");
-        // services.AddSingleton(sp =>
-        //     new SqliteTradeRepository(dbPath, sp.GetRequiredService<ILogger<SqliteTradeRepository>>()));
-        // services.AddSingleton<ITradeRepository>(sp => sp.GetRequiredService<SqliteTradeRepository>());
+            services.AddSingleton(sp =>
+                new SqliteOpportunityRepository(dbPath, sp.GetRequiredService<ILogger<SqliteOpportunityRepository>>()));
+            services.AddSingleton<IOpportunityRepository>(sp => sp.GetRequiredService<SqliteOpportunityRepository>());
+        }
+        else
+        {
+            services.AddSingleton<ITradeRepository, InMemoryTradeRepository>();
+            services.AddSingleton<IOpportunityRepository, InMemoryOpportunityRepository>();
+        }
 
         return services;
     }

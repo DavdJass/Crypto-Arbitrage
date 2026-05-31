@@ -23,6 +23,7 @@ public class TradeExecutorService : BackgroundService, ITradeExecutor
     private readonly Channel<TradeResult> _outputChannel;
     private readonly Random _rng = new();
     private readonly int _networkLatencyMs;
+    private readonly decimal _maxVolumeBtc;
 
     public TradeExecutorService(
         IArbitrageDetector detector, IWalletManager walletManager,
@@ -36,6 +37,7 @@ public class TradeExecutorService : BackgroundService, ITradeExecutor
         _calculator = calculator; _cache = cache; _hubContext = hubContext;
         _logger = logger;
         _networkLatencyMs = arbOpts.Value.NetworkLatencyMs;
+        _maxVolumeBtc = arbOpts.Value.MaxVolumeBtc;
         _outputChannel = Channel.CreateUnbounded<TradeResult>(
             new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
     }
@@ -67,57 +69,71 @@ public class TradeExecutorService : BackgroundService, ITradeExecutor
     private async Task<TradeResult> ExecuteTradeAsync(ArbitrageOpportunity opp, CancellationToken ct)
     {
         if (_circuitBreaker.IsOpen)
-            return await SaveAndReturn(opp, 0, false, "circuit_open", ct);
+            return await SaveAndReturn(opp, 0, 0, 0, false, "circuit_open", ct);
 
-        // ─── Simular latencia de red ────────────────────────────────
         var netLatency = _networkLatencyMs + _rng.Next(-_networkLatencyMs / 2, _networkLatencyMs / 2);
         if (netLatency > 0) await Task.Delay(Math.Max(netLatency, 0), ct);
 
-        // ─── Re-evaluar precio después de la latencia simulada ────
         var bookBuy = _cache.GetLatest(opp.BuyExchange);
         var bookSell = _cache.GetLatest(opp.SellExchange);
         if (bookBuy == null || bookSell == null)
-            return await SaveAndReturn(opp, 0, false, "stale_prices", ct);
+            return await SaveAndReturn(opp, 0, 0, 0, false, "stale_prices", ct);
 
         var currentOpp = _calculator.Evaluate(bookBuy, bookSell);
         if (!_calculator.IsExecutable(currentOpp))
         {
-            _logger.LogWarning("Oportunidad expiró tras latencia de {L}ms — {Buy}→{Sell} ya no es rentable",
+            _logger.LogWarning("Oportunidad expiró tras latencia de {L}ms — {Buy}→{Sell}",
                 netLatency, opp.BuyExchange, opp.SellExchange);
-            return await SaveAndReturn(opp, 0, false, "price_moved", ct);
+            return await SaveAndReturn(opp, 0, 0, 0, false, "price_moved", ct);
         }
 
-        // ─── Verificar fondos ──────────────────────────────────────
-        var buyBal = _walletManager.GetBalance(opp.BuyExchange);
-        var sellBal = _walletManager.GetBalance(opp.SellExchange);
-        var maxByUsdt = buyBal.UsdtBalance / (opp.AskPrice > 0 ? opp.AskPrice : 1);
-        var maxByBtc = sellBal.BtcBalance;
-        var execVol = Math.Min(Math.Min(opp.Volume, maxByUsdt), maxByBtc);
+        var execVol = currentOpp.Volume;
+        var settlement = _calculator.ComputeSettlement(
+            currentOpp.BuyExchange,
+            currentOpp.SellExchange,
+            currentOpp.AskPrice,
+            currentOpp.BidPrice,
+            execVol);
 
-        if (execVol <= 0)
-            return await SaveAndReturn(opp, 0, false, "insufficient_funds", ct);
+        if (!_walletManager.TryExecuteArbitrage(
+                currentOpp.BuyExchange, currentOpp.SellExchange, settlement))
+            return await SaveAndReturn(opp, 0, 0, 0, false, "insufficient_funds", ct);
 
-        var usdtNeeded = opp.AskPrice * execVol;
-        var usdtEarned = opp.BidPrice * execVol;
-
-        if (!_walletManager.TryExecuteBuy(opp.BuyExchange, usdtNeeded, execVol) ||
-            !_walletManager.TryExecuteSell(opp.SellExchange, execVol, usdtEarned))
-            return await SaveAndReturn(opp, 0, false, "insufficient_funds", ct);
-
-        var actualProfit = opp.NetProfit * (execVol / opp.Volume);
-        var status = execVol < opp.Volume ? "executed_partial" : "executed";
+        var isPartialByLiquidity = execVol < _maxVolumeBtc;
+        var status = isPartialByLiquidity ? "executed_partial" : "executed";
 
         _logger.LogInformation("[✓] {B}→{S} Vol={V:F4} Net={P:F3} Lat={L}ms",
-            opp.BuyExchange, opp.SellExchange, execVol, actualProfit, netLatency);
+            currentOpp.BuyExchange, currentOpp.SellExchange, execVol, settlement.NetProfit, netLatency);
 
-        return await SaveAndReturn(opp, actualProfit, actualProfit > 0, status, ct);
+        return await SaveAndReturn(
+            currentOpp,
+            execVol,
+            settlement.NetProfit,
+            settlement.NetProfit / settlement.BuyCostUsdt,
+            settlement.NetProfit > 0,
+            status,
+            ct);
     }
 
-    private async Task<TradeResult> SaveAndReturn(ArbitrageOpportunity opp, decimal netProfit,
-        bool isProfit, string status, CancellationToken ct)
+    private async Task<TradeResult> SaveAndReturn(
+        ArbitrageOpportunity opp,
+        decimal executedVolume,
+        decimal netProfit,
+        decimal returnPct,
+        bool isProfit,
+        string status,
+        CancellationToken ct)
     {
-        var t = new TradeResult(Guid.NewGuid(), opp.BuyExchange, opp.SellExchange, opp.Volume,
-            isProfit ? netProfit : 0, isProfit ? opp.ReturnPct : 0, isProfit, status, DateTime.UtcNow);
+        var t = new TradeResult(
+            Guid.NewGuid(),
+            opp.BuyExchange,
+            opp.SellExchange,
+            executedVolume,
+            isProfit ? netProfit : 0,
+            isProfit ? returnPct : 0,
+            isProfit,
+            status,
+            DateTime.UtcNow);
         await _tradeRepository.SaveAsync(t, ct);
         return t;
     }

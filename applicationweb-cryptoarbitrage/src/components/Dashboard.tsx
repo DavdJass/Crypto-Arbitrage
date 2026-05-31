@@ -7,17 +7,14 @@ import { CircuitBreakerPanel } from './CircuitBreakerPanel';
 import { ConnectionHealth } from './ConnectionHealth';
 import { TradeToast } from './TradeToast';
 import { ThemeToggle } from './ThemeToggle';
+import { HeroStats } from './HeroStats';
 import { useSignalR } from '../hooks/useSignalR';
 
 export function Dashboard() {
   const { connected, orderBooks, opportunities, trades, triangularOpps, clearOpportunities } =
     useSignalR();
 
-  // Mismo umbral que back-end (MinReturnPct = 0.002 = 0.2%)
-  const executableCount = opportunities.filter(
-    (o) => o.netProfit > 0 && o.returnPct > 0.002 && o.bidPrice > o.askPrice
-  ).length;
-
+  const executableCount = opportunities.filter(o => o.status === 'executed' || o.status === 'detected').length;
   const triangularCount = triangularOpps.length;
   const totalLive = executableCount + triangularCount;
 
@@ -44,10 +41,14 @@ export function Dashboard() {
         </div>
       </header>
 
-      {/* Toast notification en trades rentables */}
       <TradeToast trades={trades} />
 
-      {/* Top row: Order Books + Status */}
+      {/* Hero Stats */}
+      <section>
+        <HeroStats trades={trades} />
+      </section>
+
+      {/* Order Books + Status */}
       <section>
         <div className="section-header">
           <h2>📊 Order Books</h2>
@@ -120,7 +121,11 @@ export function Dashboard() {
         <TradesPanel trades={trades} />
       </section>
 
-      <footer style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-dim)', fontSize: 12, borderTop: '1px solid var(--border)' }}>
+      <footer style={{
+        textAlign: 'center', padding: '20px 0',
+        color: 'var(--text-dim)', fontSize: 12,
+        borderTop: '1px solid var(--border)',
+      }}>
         Crypto Arbitrage Bot v1.0 — Datos en vivo de 10 exchanges: Binance, Kraken, Bybit, Coinbase, OKX, Bitfinex, KuCoin, Gate.io, Bitstamp, Gemini
       </footer>
     </div>
